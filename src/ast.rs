@@ -84,11 +84,11 @@ struct ModuleInner {
 /// and which entities will be closed over (the `containing` clause).
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Block {
-    name: Name,
-    containing: Vec<Name>,
-    receiving: Vec<Name>,
-    statements: Vec<Statement>,
-    invocation: Invocation,
+    pub name: Name,
+    pub containing: Vec<Name>,
+    pub receiving: Vec<Name>,
+    pub statements: Vec<Statement>,
+    pub invocation: Invocation,
 }
 
 impl Block {
@@ -115,10 +115,7 @@ impl Block {
 /// A single statement in an S₀ block.  Statements create new entities (or rename existing ones) in
 /// the environment.
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct Statement(StatementInner);
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-enum StatementInner {
+pub enum Statement {
     CreateAtom(CreateAtom),
     CreateClosure(CreateClosure),
     CreateLiteral(CreateLiteral),
@@ -126,22 +123,22 @@ enum StatementInner {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-struct CreateAtom {
-    dest: Name,
+pub struct CreateAtom {
+    pub dest: Name,
 }
 
 impl Statement {
     /// A statement that creates a new atom.
     pub fn create_atom(dest: Name) -> Statement {
-        Statement(StatementInner::CreateAtom(CreateAtom { dest }))
+        Statement::CreateAtom(CreateAtom { dest })
     }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct BranchRef {
-    branch_name: Name,
-    block_name: Name,
-    resolved: usize,
+    pub branch_name: Name,
+    pub block_name: Name,
+    pub resolved: usize,
 }
 
 impl BranchRef {
@@ -155,10 +152,10 @@ impl BranchRef {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-struct CreateClosure {
-    dest: Name,
-    close_over: Vec<Name>,
-    branches: Vec<BranchRef>,
+pub struct CreateClosure {
+    pub dest: Name,
+    pub close_over: Vec<Name>,
+    pub branches: Vec<BranchRef>,
 }
 
 impl Statement {
@@ -172,37 +169,37 @@ impl Statement {
         close_over: Vec<Name>,
         branches: Vec<BranchRef>,
     ) -> Statement {
-        Statement(StatementInner::CreateClosure(CreateClosure {
+        Statement::CreateClosure(CreateClosure {
             dest,
             close_over,
             branches,
-        }))
+        })
     }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-struct CreateLiteral {
-    dest: Name,
-    value: Vec<u8>,
+pub struct CreateLiteral {
+    pub dest: Name,
+    pub value: Vec<u8>,
 }
 
 impl Statement {
     /// A statement that creates a new literal.
     pub fn create_literal(dest: Name, value: Vec<u8>) -> Statement {
-        Statement(StatementInner::CreateLiteral(CreateLiteral { dest, value }))
+        Statement::CreateLiteral(CreateLiteral { dest, value })
     }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-struct Rename {
-    dest: Name,
-    source: Name,
+pub struct Rename {
+    pub dest: Name,
+    pub source: Name,
 }
 
 impl Statement {
     /// A statement that renames an existing entity in the environment.
     pub fn rename(dest: Name, source: Name) -> Statement {
-        Statement(StatementInner::Rename(Rename { dest, source }))
+        Statement::Rename(Rename { dest, source })
     }
 }
 
@@ -213,8 +210,8 @@ impl Statement {
 /// the body of the selected branch.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Invocation {
-    target: Name,
-    branch: Name,
+    pub target: Name,
+    pub branch: Name,
 }
 
 impl Invocation {
@@ -270,8 +267,8 @@ impl ParsedModule {
         let mut branch_names = HashSet::new();
         for block in &mut self.0.blocks {
             for stmt in &mut block.statements {
-                match &mut stmt.0 {
-                    StatementInner::CreateClosure(stmt) => {
+                match stmt {
+                    Statement::CreateClosure(stmt) => {
                         branch_names.clear();
                         for branch in &mut stmt.branches {
                             if !branch_names.insert(branch.block_name.clone()) {
