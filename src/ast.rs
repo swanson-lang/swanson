@@ -15,6 +15,9 @@
 
 //! Types and constructors for working with the syntax AST of an S₀ program.
 
+use std::collections::HashMap;
+use std::collections::HashSet;
+
 //-------------------------------------------------------------------------------------------------
 // Names
 
@@ -223,5 +226,130 @@ pub struct Invocation {
 impl Invocation {
     pub fn new(target: Name, branch: Name) -> Invocation {
         Invocation { target, branch }
+    }
+}
+
+//-------------------------------------------------------------------------------------------------
+// Resolving and validation modules
+
+/// Indicates that an error occurred while trying to resolve an S₀ module.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum ResolutionError {
+    /// There are two blocks in a module with the same name.
+    DuplicateBlock,
+    /// There are two branches in a closure with the same name.
+    DuplicateBranch,
+    /// There is a reference to branch that doesn't exist in the module.
+    MissingBranch,
+}
+
+impl Module {
+    pub fn resolve(&mut self) -> Result<(), ResolutionError> {
+        // First build up a mapping from block names to their index within the module.
+        let mut block_indices = HashMap::new();
+        for (idx, block) in self.blocks.iter().enumerate() {
+            use std::collections::hash_map::Entry;
+            match block_indices.entry(block.name.clone()) {
+                Entry::Occupied(_) => return Err(ResolutionError::DuplicateBlock),
+                Entry::Vacant(entry) => entry.insert(idx),
+            };
+        }
+
+        // Then update each closure in the module so that their branches refer to their blocks by
+        // index as well as by name.
+        let mut branch_names = HashSet::new();
+        for block in &mut self.blocks {
+            for stmt in &mut block.statements {
+                match &mut stmt.0 {
+                    StatementInner::CreateClosure(stmt) => {
+                        branch_names.clear();
+                        for branch in &mut stmt.branches {
+                            if !branch_names.insert(branch.block_name.clone()) {
+                                return Err(ResolutionError::DuplicateBranch);
+                            }
+                            let idx = match block_indices.get(&branch.block_name) {
+                                Some(idx) => idx,
+                                None => return Err(ResolutionError::MissingBranch),
+                            };
+                            branch.resolved = Some(*idx);
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod resolution_tests {
+    use super::*;
+
+    use crate::s0;
+
+    #[test]
+    fn cannot_have_duplicate_block_names() {
+        let mut module = s0! {
+            module mod {
+                block: containing () receiving (input) {
+                    -> input branch;
+                }
+                block: containing () receiving (input) {
+                    -> input branch;
+                }
+            }
+        };
+        assert_eq!(module.resolve(), Err(ResolutionError::DuplicateBlock));
+    }
+
+    #[test]
+    fn cannot_have_duplicate_branch_names() {
+        let mut module = s0! {
+            module mod {
+                block: containing () receiving (input) {
+                    foo = closure containing ()
+                        branch false = target,
+                        branch false = target;
+                    -> input branch;
+                }
+                target: containing () receiving (input) {
+                    -> input branch;
+                }
+            }
+        };
+        assert_eq!(module.resolve(), Err(ResolutionError::DuplicateBranch));
+    }
+
+    #[test]
+    fn cannot_have_missing_branches() {
+        let mut module = s0! {
+            module mod {
+                block: containing () receiving (input) {
+                    foo = closure containing ()
+                        branch false = missing;
+                    -> input branch;
+                }
+            }
+        };
+        assert_eq!(module.resolve(), Err(ResolutionError::MissingBranch));
+    }
+
+    #[test]
+    fn can_resolve_modules() {
+        let mut module = s0! {
+            module mod {
+                block: containing () receiving (input) {
+                    foo = closure containing ()
+                        branch false = target;
+                    -> input branch;
+                }
+                target: containing () receiving (input) {
+                    -> input branch;
+                }
+            }
+        };
+        assert_eq!(module.resolve(), Ok(()));
     }
 }
