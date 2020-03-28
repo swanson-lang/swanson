@@ -15,10 +15,10 @@
 
 //! Parse S₀ source code into its internal AST representation.
 
-use std::collections::HashMap;
 use std::iter::Peekable;
 
 use crate::ast::Block;
+use crate::ast::BranchRef;
 use crate::ast::Invocation;
 use crate::ast::Module;
 use crate::ast::Name;
@@ -53,8 +53,6 @@ macro_rules! s0 {
 mod macro_tests {
     use super::*;
 
-    use maplit::hashmap;
-
     #[test]
     fn can_parse() {
         assert_eq!(
@@ -69,17 +67,16 @@ mod macro_tests {
             },
             Module::new(
                 Name::new("mod"),
-                hashmap! {
-                    Name::new("block") => Block::new(
-                        vec![Name::new("closed_over")],
-                        vec![Name::new("input")],
-                        vec![
-                            Statement::create_literal(Name::new("lit"), "foo".as_bytes().to_vec()),
-                            Statement::create_atom(Name::new("atom")),
-                        ],
-                        Invocation::new(Name::new("closed_over"), Name::new("branch"))
-                    )
-                }
+                vec![Block::new(
+                    Name::new("block"),
+                    vec![Name::new("closed_over")],
+                    vec![Name::new("input")],
+                    vec![
+                        Statement::create_literal(Name::new("lit"), "foo".as_bytes().to_vec()),
+                        Statement::create_atom(Name::new("atom")),
+                    ],
+                    Invocation::new(Name::new("closed_over"), Name::new("branch"))
+                )]
             )
         );
     }
@@ -460,7 +457,7 @@ where
         self.require_keyword("containing")?;
         self.skip_whitespace();
         let containing = self.parse_name_list()?;
-        let mut branches = HashMap::new();
+        let mut branches = Vec::new();
         {
             self.skip_whitespace();
             self.require_keyword("branch")?;
@@ -470,7 +467,7 @@ where
             self.require_operator("=")?;
             self.skip_whitespace();
             let branch_target = self.parse_name()?;
-            branches.insert(branch_name, branch_target);
+            branches.push(BranchRef::new(branch_name, branch_target));
         }
         loop {
             self.skip_whitespace();
@@ -489,7 +486,7 @@ where
             self.require_operator("=")?;
             self.skip_whitespace();
             let branch_target = self.parse_name()?;
-            branches.insert(branch_name, branch_target);
+            branches.push(BranchRef::new(branch_name, branch_target));
         }
     }
 
@@ -521,8 +518,6 @@ where
 #[cfg(test)]
 mod parse_statement_tests {
     use super::*;
-
-    use maplit::hashmap;
 
     fn check_all_prefixes(input: &str) {
         for len in 0..input.len() {
@@ -558,9 +553,10 @@ mod parse_statement_tests {
             Ok(Statement::create_closure(
                 Name::new("foo"),
                 vec![Name::new("foo"), Name::new("bar")],
-                hashmap! { Name::new("true") => Name::new("@true"),
-                    Name::new("false") => Name::new("@false"),
-                }
+                vec![
+                    BranchRef::new(Name::new("true"), Name::new("@true")),
+                    BranchRef::new(Name::new("false"), Name::new("@false")),
+                ]
             ))
         );
         assert_eq!(
@@ -573,9 +569,10 @@ mod parse_statement_tests {
             Ok(Statement::create_closure(
                 Name::new("foo"),
                 vec![Name::new("foo"), Name::new("bar")],
-                hashmap! { Name::new("true") => Name::new("@true"),
-                    Name::new("false") => Name::new("@false"),
-                }
+                vec![
+                    BranchRef::new(Name::new("true"), Name::new("@true")),
+                    BranchRef::new(Name::new("false"), Name::new("@false")),
+                ]
             ))
         );
         check_all_prefixes("foo=closure containing(foo,bar)branch true=@true,branch false=@false;");
@@ -665,6 +662,7 @@ where
     I: Iterator<Item = char>,
 {
     /// ``` s0
+    /// [name]:
     /// containing ([names],...)
     /// receiving ([name],...)
     /// {
@@ -673,6 +671,10 @@ where
     /// }
     /// ```
     fn parse_block(&mut self) -> Result<Block, ParseError> {
+        let name = self.parse_name()?;
+        self.skip_whitespace();
+        self.require_operator(":")?;
+        self.skip_whitespace();
         self.require_keyword("containing")?;
         self.skip_whitespace();
         let containing = self.parse_name_list()?;
@@ -691,7 +693,9 @@ where
         let invocation = self.parse_invocation()?;
         self.skip_whitespace();
         self.require_operator("}")?;
-        Ok(Block::new(containing, receiving, statements, invocation))
+        Ok(Block::new(
+            name, containing, receiving, statements, invocation,
+        ))
     }
 }
 
@@ -712,6 +716,7 @@ mod parse_block_tests {
     fn can_parse() {
         assert_eq!(
             Parser::for_str(concat!(
+                "block_name: ",
                 "containing (closed_over) ",
                 "receiving (input) ",
                 "{",
@@ -722,6 +727,7 @@ mod parse_block_tests {
             ))
             .parse_block(),
             Ok(Block::new(
+                Name::new("block_name"),
                 vec![Name::new("closed_over")],
                 vec![Name::new("input")],
                 vec![
@@ -733,6 +739,7 @@ mod parse_block_tests {
         );
         assert_eq!(
             Parser::for_str(concat!(
+                "block_name:",
                 "containing(closed_over)",
                 "receiving(input)",
                 "{",
@@ -743,6 +750,7 @@ mod parse_block_tests {
             ))
             .parse_block(),
             Ok(Block::new(
+                Name::new("block_name"),
                 vec![Name::new("closed_over")],
                 vec![Name::new("input")],
                 vec![
@@ -753,6 +761,7 @@ mod parse_block_tests {
             ))
         );
         check_all_prefixes(concat!(
+            "block_name: ",
             "containing (closed_over) ",
             "receiving (input) ",
             "{",
@@ -770,7 +779,7 @@ where
 {
     /// ``` s0
     /// module [name] {
-    ///   [name]: [block]
+    ///   [block]
     ///   ...
     /// }
     /// ```
@@ -780,19 +789,15 @@ where
         let name = self.parse_name()?;
         self.skip_whitespace();
         self.require_operator("{")?;
-        let mut blocks = HashMap::new();
+        let mut blocks = Vec::new();
         loop {
             self.skip_whitespace();
             if self.require_peek()? == '}' {
                 self.it.next();
                 return Ok(Module::new(name, blocks));
             }
-            let block_name = self.parse_name()?;
-            self.skip_whitespace();
-            self.require_operator(":")?;
-            self.skip_whitespace();
             let block = self.parse_block()?;
-            blocks.insert(block_name, block);
+            blocks.push(block);
         }
     }
 }
@@ -800,8 +805,6 @@ where
 #[cfg(test)]
 mod parse_module_tests {
     use super::*;
-
-    use maplit::hashmap;
 
     fn check_all_prefixes(input: &str) {
         for len in 0..input.len() {
@@ -830,17 +833,16 @@ mod parse_module_tests {
             .parse_module(),
             Ok(Module::new(
                 Name::new("@mod"),
-                hashmap! {
-                    Name::new("@block") => Block::new(
-                        vec![Name::new("closed_over")],
-                        vec![Name::new("input")],
-                        vec![
-                            Statement::create_literal(Name::new("@lit"), "foo".as_bytes().to_vec()),
-                            Statement::create_atom(Name::new("@atom")),
-                        ],
-                        Invocation::new(Name::new("closed_over"), Name::new("branch"))
-                    )
-                }
+                vec![Block::new(
+                    Name::new("@block"),
+                    vec![Name::new("closed_over")],
+                    vec![Name::new("input")],
+                    vec![
+                        Statement::create_literal(Name::new("@lit"), "foo".as_bytes().to_vec()),
+                        Statement::create_atom(Name::new("@atom")),
+                    ],
+                    Invocation::new(Name::new("closed_over"), Name::new("branch"))
+                )]
             ))
         );
         assert_eq!(
@@ -859,17 +861,16 @@ mod parse_module_tests {
             .parse_module(),
             Ok(Module::new(
                 Name::new("@mod"),
-                hashmap! {
-                    Name::new("@block") => Block::new(
-                        vec![Name::new("closed_over")],
-                        vec![Name::new("input")],
-                        vec![
-                            Statement::create_literal(Name::new("@lit"), "foo".as_bytes().to_vec()),
-                            Statement::create_atom(Name::new("@atom")),
-                        ],
-                        Invocation::new(Name::new("closed_over"), Name::new("branch"))
-                    )
-                }
+                vec![Block::new(
+                    Name::new("@block"),
+                    vec![Name::new("closed_over")],
+                    vec![Name::new("input")],
+                    vec![
+                        Statement::create_literal(Name::new("@lit"), "foo".as_bytes().to_vec()),
+                        Statement::create_atom(Name::new("@atom")),
+                    ],
+                    Invocation::new(Name::new("closed_over"), Name::new("branch"))
+                )]
             ))
         );
         check_all_prefixes(concat!(

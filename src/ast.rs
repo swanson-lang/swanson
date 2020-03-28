@@ -15,8 +15,6 @@
 
 //! Types and constructors for working with the syntax AST of an S₀ program.
 
-use std::collections::HashMap;
-
 //-------------------------------------------------------------------------------------------------
 // Names
 
@@ -70,11 +68,11 @@ mod name_tests {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Module {
     name: Name,
-    blocks: HashMap<Name, Block>,
+    blocks: Vec<Block>,
 }
 
 impl Module {
-    pub fn new(name: Name, blocks: HashMap<Name, Block>) -> Module {
+    pub fn new(name: Name, blocks: Vec<Block>) -> Module {
         Module { name, blocks }
     }
 }
@@ -89,6 +87,7 @@ impl Module {
 /// and which entities will be closed over (the `containing` clause).
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Block {
+    name: Name,
     containing: Vec<Name>,
     receiving: Vec<Name>,
     statements: Vec<Statement>,
@@ -97,12 +96,14 @@ pub struct Block {
 
 impl Block {
     pub fn new(
+        name: Name,
         containing: Vec<Name>,
         receiving: Vec<Name>,
         statements: Vec<Statement>,
         invocation: Invocation,
     ) -> Block {
         Block {
+            name,
             containing,
             receiving,
             statements,
@@ -140,10 +141,27 @@ impl Statement {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
+pub struct BranchRef {
+    branch_name: Name,
+    block_name: Name,
+    resolved: Option<usize>,
+}
+
+impl BranchRef {
+    pub fn new(branch_name: Name, block_name: Name) -> BranchRef {
+        BranchRef {
+            branch_name,
+            block_name,
+            resolved: None,
+        }
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
 struct CreateClosure {
     dest: Name,
     close_over: Vec<Name>,
-    branches: HashMap<Name, Name>,
+    branches: Vec<BranchRef>,
 }
 
 impl Statement {
@@ -155,7 +173,7 @@ impl Statement {
     pub fn create_closure(
         dest: Name,
         close_over: Vec<Name>,
-        branches: HashMap<Name, Name>,
+        branches: Vec<BranchRef>,
     ) -> Statement {
         Statement(StatementInner::CreateClosure(CreateClosure {
             dest,
