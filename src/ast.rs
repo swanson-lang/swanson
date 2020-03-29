@@ -235,12 +235,9 @@ pub enum ResolutionError {
 }
 
 /// Parse and resolve S₀ source code into its internal AST representation.
-#[macro_export]
-macro_rules! s0 {
-    ($($content:tt)*) => {{
-        let module = crate::parse_s0!($($content)*);
-        module.resolve().expect("Ill-formed S₀ program")
-    }};
+pub fn s0(content: &str) -> Module {
+    let module = parse_module(content).expect("Invalid S₀ program");
+    module.resolve().expect("Ill-formed S₀ program")
 }
 
 /// A collection of S₀ definitions that make up a single logical unit.  An instance of this type
@@ -294,27 +291,26 @@ impl ParsedModule {
 mod resolution_tests {
     use super::*;
 
-    use crate::parse_s0;
-
     #[test]
     fn cannot_have_duplicate_block_names() {
-        let module = parse_s0! {
-            module mod {
+        let module = parse_module(
+            "module mod {
                 block: containing () receiving (input) {
                     -> input branch;
                 }
                 block: containing () receiving (input) {
                     -> input branch;
                 }
-            }
-        };
+            }",
+        )
+        .unwrap();
         assert_eq!(module.resolve(), Err(ResolutionError::DuplicateBlock));
     }
 
     #[test]
     fn cannot_have_duplicate_branch_names() {
-        let module = parse_s0! {
-            module mod {
+        let module = parse_module(
+            "module mod {
                 block: containing () receiving (input) {
                     foo = closure containing ()
                         branch false = target,
@@ -324,28 +320,30 @@ mod resolution_tests {
                 target: containing () receiving (input) {
                     -> input branch;
                 }
-            }
-        };
+            }",
+        )
+        .unwrap();
         assert_eq!(module.resolve(), Err(ResolutionError::DuplicateBranch));
     }
 
     #[test]
     fn cannot_have_missing_branches() {
-        let module = parse_s0! {
-            module mod {
+        let module = parse_module(
+            "module mod {
                 block: containing () receiving (input) {
                     foo = closure containing ()
                         branch false = missing;
                     -> input branch;
                 }
-            }
-        };
+            }",
+        )
+        .unwrap();
         assert_eq!(module.resolve(), Err(ResolutionError::MissingBranch));
     }
 
     #[test]
     fn can_resolve_modules() {
-        let _ = s0! {
+        let _ = s0("
             module mod {
                 block: containing () receiving (input) {
                     foo = closure containing ()
@@ -355,8 +353,7 @@ mod resolution_tests {
                 target: containing () receiving (input) {
                     -> input branch;
                 }
-            }
-        };
+            }");
     }
 }
 
@@ -384,17 +381,10 @@ pub enum ParseError {
 
 /// Parse S₀ source code into its internal AST representation.
 pub fn parse_module(input: &str) -> Result<ParsedModule, ParseError> {
-    Parser::for_str(input).parse_module()
-}
-
-/// Parse S₀ source code into its internal AST representation.
-#[macro_export]
-macro_rules! parse_s0 {
-    ($($content:tt)*) => {{
-        let content = stringify!($($content)*);
-        dbg!(content);
-        $crate::ast::parse_module(content).expect("Invalid S₀ program")
-    }};
+    let mut parser = Parser::for_str(input);
+    let result = parser.parse_module();
+    dbg!(parser.it.collect::<String>());
+    result
 }
 
 #[cfg(test)]
@@ -404,15 +394,16 @@ mod macro_tests {
     #[test]
     fn can_parse() {
         assert_eq!(
-            parse_s0! {
-                module mod {
+            parse_module(
+                "module mod {
                     block: containing (closed_over) receiving (input) {
                         lit = literal foo;
                         atom = atom;
                         -> closed_over branch;
                     }
-                }
-            },
+                }"
+            )
+            .unwrap(),
             ParsedModule::new(
                 Name::new("mod"),
                 vec![Block::new(
@@ -1132,6 +1123,7 @@ where
     /// }
     /// ```
     fn parse_module(&mut self) -> Result<ParsedModule, ParseError> {
+        self.skip_whitespace();
         self.require_keyword("module")?;
         self.skip_whitespace();
         let name = self.parse_name()?;
