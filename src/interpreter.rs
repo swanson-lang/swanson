@@ -218,6 +218,21 @@ impl Environment {
         }
     }
 
+    /// Returns whether the environment contains exactly the given set of names, and no others.
+    pub fn contains_exactly(&self, expected: &[Name]) -> bool {
+        if self.0.len() != expected.len() {
+            return false;
+        }
+
+        for name in expected {
+            if !self.0.contains_key(name) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
     /// Merges the contents of `other` into this environment.  Returns a `DuplicateOutput` error if
     /// there are any pair of values in the two environments that have the same name.
     pub fn merge<E>(&mut self, other: E) -> Result<(), ExecutionError>
@@ -259,7 +274,9 @@ impl IntoIterator for Environment {
 pub enum ExecutionError {
     DuplicateOutput,
     IncorrectValueKind,
+    MismatchedContaining,
     MismatchedPrimitive,
+    MismatchedReceiving,
     MissingValue,
     TargetNotInvokable,
     UnknownBranch,
@@ -270,7 +287,51 @@ impl Module {
     /// block defined in the module).
     pub fn execute(self: Arc<Self>, env: &mut Environment) -> Result<(), ExecutionError> {
         let entry_point = self.block(0);
+        if !env.contains_exactly(&entry_point.receiving) {
+            return Err(ExecutionError::MismatchedReceiving);
+        }
+        if !entry_point.containing.is_empty() {
+            return Err(ExecutionError::MismatchedContaining);
+        }
         entry_point.execute(&self, env)
+    }
+}
+
+#[cfg(test)]
+mod module_tests {
+    use super::*;
+
+    use crate::ast::s0;
+
+    #[test]
+    fn entry_point_must_have_empty_containing_set() -> Result<(), ExecutionError> {
+        let module = s0("
+            module test {
+                entry: containing (something) receiving (unused) {
+                    -> unused unused;
+                }
+            }");
+
+        let mut env = Environment::new();
+        env.add("unused", Value::Atom(Atom::new()))?;
+        let result = module.execute(&mut env);
+        assert_eq!(result, Err(ExecutionError::MismatchedContaining));
+        Ok(())
+    }
+
+    #[test]
+    fn entry_point_must_have_matching_receiving_set() -> Result<(), ExecutionError> {
+        let module = s0("
+            module test {
+                entry: containing () receiving (unused) {
+                    -> unused unused;
+                }
+            }");
+
+        let mut env = Environment::new();
+        let result = module.execute(&mut env);
+        assert_eq!(result, Err(ExecutionError::MismatchedReceiving));
+        Ok(())
     }
 }
 
@@ -386,9 +447,63 @@ impl Closure {
             .get(branch)
             .ok_or(ExecutionError::UnknownBranch)?;
         let block = branch.module.block(branch.index);
-        // TODO: Validate block's containing and receiving sets
+        if !env.contains_exactly(&block.receiving) {
+            return Err(ExecutionError::MismatchedReceiving);
+        }
+        if !self.closed_over.contains_exactly(&block.containing) {
+            return Err(ExecutionError::MismatchedContaining);
+        }
         env.merge(self.closed_over)?;
         block.execute(&branch.module, env)
+    }
+}
+
+#[cfg(test)]
+mod closure_tests {
+    use super::*;
+
+    use crate::ast::s0;
+
+    #[test]
+    fn closure_must_have_matching_containing_set() -> Result<(), ExecutionError> {
+        let module = s0("
+            module test {
+                entry: containing () receiving () {
+                    closure = closure containing ()
+                        branch return = entry@1;
+                    -> closure return;
+                }
+
+                entry@1: containing (incorrect) receiving () {
+                    -> incorrect unused;
+                }
+            }");
+
+        let mut env = Environment::new();
+        let result = module.execute(&mut env);
+        assert_eq!(result, Err(ExecutionError::MismatchedContaining));
+        Ok(())
+    }
+
+    #[test]
+    fn closure_must_have_matching_receiving_set() -> Result<(), ExecutionError> {
+        let module = s0("
+            module test {
+                entry: containing () receiving () {
+                    closure = closure containing ()
+                        branch return = entry@1;
+                    -> closure return;
+                }
+
+                entry@1: containing () receiving (incorrect) {
+                    -> incorrect unused;
+                }
+            }");
+
+        let mut env = Environment::new();
+        let result = module.execute(&mut env);
+        assert_eq!(result, Err(ExecutionError::MismatchedReceiving));
+        Ok(())
     }
 }
 
