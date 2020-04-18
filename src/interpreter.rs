@@ -82,15 +82,15 @@ use std::any::Any;
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use crate::ast::Block;
-use crate::ast::CreateAtom;
-use crate::ast::CreateClosure;
-use crate::ast::CreateLiteral;
-use crate::ast::Invocation;
-use crate::ast::Module;
-use crate::ast::Name;
-use crate::ast::Rename;
-use crate::ast::Statement;
+use crate::s0::Block;
+use crate::s0::CreateAtom;
+use crate::s0::CreateClosure;
+use crate::s0::CreateLiteral;
+use crate::s0::Invocation;
+use crate::s0::Module;
+use crate::s0::Name;
+use crate::s0::Rename;
+use crate::s0::Statement;
 
 //-------------------------------------------------------------------------------------------------
 // Atoms
@@ -301,7 +301,7 @@ impl Module {
 mod module_tests {
     use super::*;
 
-    use crate::ast::s0;
+    use crate::s0::s0;
 
     #[test]
     fn entry_point_must_have_empty_containing_set() -> Result<(), ExecutionError> {
@@ -462,7 +462,7 @@ impl Closure {
 mod closure_tests {
     use super::*;
 
-    use crate::ast::s0;
+    use crate::s0::s0;
 
     #[test]
     fn closure_must_have_matching_containing_set() -> Result<(), ExecutionError> {

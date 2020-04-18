@@ -37,8 +37,6 @@ use std::sync::Arc;
 
 use once_cell::sync::Lazy;
 
-use crate::ast::Module;
-use crate::ast::Name;
 use crate::interpreter::BoxedBranches;
 use crate::interpreter::BoxedPrimitive;
 use crate::interpreter::Environment;
@@ -47,6 +45,8 @@ use crate::interpreter::InlineBranches;
 use crate::interpreter::InlinePrimitive;
 use crate::interpreter::InlinePrimitiveMetadata;
 use crate::interpreter::Value;
+use crate::s0::Module;
+use crate::s0::Name;
 
 impl Module {
     pub fn execute_and_get_result(
@@ -225,7 +225,7 @@ impl BoxedPrimitive for StringPrimitive {
 mod string_tests {
     use super::*;
 
-    use crate::ast::s0;
+    use crate::s0::s0;
 
     #[test]
     fn can_produce_string() -> Result<(), ExecutionError> {
@@ -456,7 +456,7 @@ impl InlinePrimitive for TruePrimitive {
 mod boolean_tests {
     use super::*;
 
-    use crate::ast::s0;
+    use crate::s0::s0;
 
     #[test]
     fn can_produce_false() -> Result<(), ExecutionError> {

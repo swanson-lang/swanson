@@ -13,7 +13,7 @@
 // limitations under the License.
 // ------------------------------------------------------------------------------------------------
 
-//! Types and constructors for working with the syntax AST of an S₀ program.
+//! Types and constructors for working with the AST of an S₀ program.
 
 use std::borrow::Borrow;
 use std::collections::HashMap;
