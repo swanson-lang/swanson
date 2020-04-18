@@ -15,9 +15,12 @@
 
 //! Types and constructors for working with the syntax AST of an S₀ program.
 
+use std::borrow::Borrow;
 use std::collections::HashMap;
 use std::collections::HashSet;
+use std::fmt::Display;
 use std::iter::Peekable;
+use std::sync::Arc;
 
 //-------------------------------------------------------------------------------------------------
 // Names
@@ -38,6 +41,26 @@ impl Name {
 impl AsRef<[u8]> for Name {
     fn as_ref(&self) -> &[u8] {
         &self.0
+    }
+}
+
+impl Borrow<[u8]> for Name {
+    fn borrow(&self) -> &[u8] {
+        &self.0
+    }
+}
+
+impl Display for Name {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        String::from_utf8(self.0.clone())
+            .expect("Invalid UTF-8 name")
+            .fmt(f)
+    }
+}
+
+impl From<&str> for Name {
+    fn from(value: &str) -> Name {
+        Name::new(value)
     }
 }
 
@@ -235,9 +258,9 @@ pub enum ResolutionError {
 }
 
 /// Parse and resolve S₀ source code into its internal AST representation.
-pub fn s0(content: &str) -> Module {
+pub fn s0(content: &str) -> Arc<Module> {
     let module = parse_module(content).expect("Invalid S₀ program");
-    module.resolve().expect("Ill-formed S₀ program")
+    Arc::new(module.resolve().expect("Ill-formed S₀ program"))
 }
 
 /// A collection of S₀ definitions that make up a single logical unit.  An instance of this type
@@ -245,6 +268,16 @@ pub fn s0(content: &str) -> Module {
 /// errors.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Module(ModuleInner);
+
+impl Module {
+    pub fn name(&self) -> &Name {
+        &self.0.name
+    }
+
+    pub fn block(&self, index: usize) -> &Block {
+        &self.0.blocks[index]
+    }
+}
 
 impl ParsedModule {
     /// Resolve a parsed module, ensuring that it doesn't contain any basic syntax errors.
@@ -401,21 +434,34 @@ mod macro_tests {
                         atom = atom;
                         -> closed_over branch;
                     }
+
+                    @b1: containing () receiving (result) {
+                        -> result return;
+                    }
                 }"
             )
             .unwrap(),
             ParsedModule::new(
                 Name::new("mod"),
-                vec![Block::new(
-                    Name::new("block"),
-                    vec![Name::new("closed_over")],
-                    vec![Name::new("input")],
-                    vec![
-                        Statement::create_literal(Name::new("lit"), "foo".as_bytes().to_vec()),
-                        Statement::create_atom(Name::new("atom")),
-                    ],
-                    Invocation::new(Name::new("closed_over"), Name::new("branch"))
-                )]
+                vec![
+                    Block::new(
+                        Name::new("block"),
+                        vec![Name::new("closed_over")],
+                        vec![Name::new("input")],
+                        vec![
+                            Statement::create_literal(Name::new("lit"), "foo".as_bytes().to_vec()),
+                            Statement::create_atom(Name::new("atom")),
+                        ],
+                        Invocation::new(Name::new("closed_over"), Name::new("branch"))
+                    ),
+                    Block::new(
+                        Name::new("@b1"),
+                        vec![],
+                        vec![Name::new("result")],
+                        vec![],
+                        Invocation::new(Name::new("result"), Name::new("return"))
+                    ),
+                ]
             )
         );
     }
