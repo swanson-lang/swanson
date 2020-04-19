@@ -398,7 +398,7 @@ where
         self.require_keyword("atom")?;
         self.skip_whitespace();
         self.require_operator(";")?;
-        Ok(s0::Statement::create_atom(dest))
+        Ok(s0::CreateAtom { dest }.into())
     }
 
     /// ``` s0
@@ -423,14 +423,23 @@ where
             self.require_operator("=")?;
             self.skip_whitespace();
             let branch_target = self.parse_name()?;
-            branches.push(s0::BranchRef::new(branch_name, branch_target));
+            branches.push(s0::BranchRef {
+                branch_name,
+                block_name: branch_target,
+                resolved: 0,
+            });
         }
         loop {
             self.skip_whitespace();
             let ch = self.require_peek()?;
             if ch == ';' {
                 self.it.next();
-                return Ok(s0::Statement::create_closure(dest, containing, branches));
+                return Ok(s0::CreateClosure {
+                    dest,
+                    close_over: containing,
+                    branches,
+                }
+                .into());
             }
 
             self.require_operator(",")?;
@@ -442,7 +451,11 @@ where
             self.require_operator("=")?;
             self.skip_whitespace();
             let branch_target = self.parse_name()?;
-            branches.push(s0::BranchRef::new(branch_name, branch_target));
+            branches.push(s0::BranchRef {
+                branch_name,
+                block_name: branch_target,
+                resolved: 0,
+            });
         }
     }
 
@@ -455,10 +468,11 @@ where
         let content = self.parse_name()?;
         self.skip_whitespace();
         self.require_operator(";")?;
-        Ok(s0::Statement::create_literal(
+        Ok(s0::CreateLiteral {
             dest,
-            content.as_ref().to_vec(),
-        ))
+            value: content.as_ref().to_vec(),
+        }
+        .into())
     }
 
     /// ``` s0
@@ -470,7 +484,7 @@ where
         let source = self.parse_name()?;
         self.skip_whitespace();
         self.require_operator(";")?;
-        Ok(s0::Statement::rename(dest, source))
+        Ok(s0::Rename { dest, source }.into())
     }
 }
 
@@ -491,11 +505,17 @@ mod parse_s0_statement_tests {
     fn can_parse_create_atom() {
         assert_eq!(
             Parser::for_str("foo = atom ; ").parse_s0_statement(),
-            Ok(s0::Statement::create_atom(Name::new("foo")))
+            Ok(s0::CreateAtom {
+                dest: Name::new("foo"),
+            }
+            .into())
         );
         assert_eq!(
             Parser::for_str("foo=atom;").parse_s0_statement(),
-            Ok(s0::Statement::create_atom(Name::new("foo")))
+            Ok(s0::CreateAtom {
+                dest: Name::new("foo"),
+            }
+            .into())
         );
         check_all_prefixes("foo=atom;");
     }
@@ -509,14 +529,23 @@ mod parse_s0_statement_tests {
                 "branch false = @false ; ",
             ))
             .parse_s0_statement(),
-            Ok(s0::Statement::create_closure(
-                Name::new("foo"),
-                vec![Name::new("foo"), Name::new("bar")],
-                vec![
-                    s0::BranchRef::new(Name::new("true"), Name::new("@true")),
-                    s0::BranchRef::new(Name::new("false"), Name::new("@false")),
-                ]
-            ))
+            Ok(s0::CreateClosure {
+                dest: Name::new("foo"),
+                close_over: vec![Name::new("foo"), Name::new("bar")],
+                branches: vec![
+                    s0::BranchRef {
+                        branch_name: Name::new("true"),
+                        block_name: Name::new("@true"),
+                        resolved: 0,
+                    },
+                    s0::BranchRef {
+                        branch_name: Name::new("false"),
+                        block_name: Name::new("@false"),
+                        resolved: 0,
+                    },
+                ],
+            }
+            .into())
         );
         assert_eq!(
             Parser::for_str(concat!(
@@ -525,14 +554,23 @@ mod parse_s0_statement_tests {
                 "branch false=@false;",
             ))
             .parse_s0_statement(),
-            Ok(s0::Statement::create_closure(
-                Name::new("foo"),
-                vec![Name::new("foo"), Name::new("bar")],
-                vec![
-                    s0::BranchRef::new(Name::new("true"), Name::new("@true")),
-                    s0::BranchRef::new(Name::new("false"), Name::new("@false")),
-                ]
-            ))
+            Ok(s0::CreateClosure {
+                dest: Name::new("foo"),
+                close_over: vec![Name::new("foo"), Name::new("bar")],
+                branches: vec![
+                    s0::BranchRef {
+                        branch_name: Name::new("true"),
+                        block_name: Name::new("@true"),
+                        resolved: 0,
+                    },
+                    s0::BranchRef {
+                        branch_name: Name::new("false"),
+                        block_name: Name::new("@false"),
+                        resolved: 0,
+                    },
+                ],
+            }
+            .into())
         );
         check_all_prefixes("foo=closure containing(foo,bar)branch true=@true,branch false=@false;");
     }
@@ -541,17 +579,19 @@ mod parse_s0_statement_tests {
     fn can_parse_create_literal() {
         assert_eq!(
             Parser::for_str("foo = literal bar ; ").parse_s0_statement(),
-            Ok(s0::Statement::create_literal(
-                Name::new("foo"),
-                "bar".as_bytes().to_vec()
-            ))
+            Ok(s0::CreateLiteral {
+                dest: Name::new("foo"),
+                value: "bar".as_bytes().to_vec(),
+            }
+            .into())
         );
         assert_eq!(
             Parser::for_str("foo=literal bar;").parse_s0_statement(),
-            Ok(s0::Statement::create_literal(
-                Name::new("foo"),
-                "bar".as_bytes().to_vec()
-            ))
+            Ok(s0::CreateLiteral {
+                dest: Name::new("foo"),
+                value: "bar".as_bytes().to_vec(),
+            }
+            .into())
         );
         check_all_prefixes("foo=literal bar;");
     }
@@ -560,11 +600,19 @@ mod parse_s0_statement_tests {
     fn can_parse_rename() {
         assert_eq!(
             Parser::for_str("foo = rename bar ; ").parse_s0_statement(),
-            Ok(s0::Statement::rename(Name::new("foo"), Name::new("bar")))
+            Ok(s0::Rename {
+                dest: Name::new("foo"),
+                source: Name::new("bar"),
+            }
+            .into())
         );
         assert_eq!(
             Parser::for_str("foo=rename bar;").parse_s0_statement(),
-            Ok(s0::Statement::rename(Name::new("foo"), Name::new("bar")))
+            Ok(s0::Rename {
+                dest: Name::new("foo"),
+                source: Name::new("bar"),
+            }
+            .into())
         );
         check_all_prefixes("foo=rename bar;");
     }
@@ -585,7 +633,7 @@ where
         let branch = self.parse_name()?;
         self.skip_whitespace();
         self.require_operator(";")?;
-        Ok(s0::Invocation::new(target, branch))
+        Ok(s0::Invocation { target, branch })
     }
 }
 
@@ -606,17 +654,17 @@ mod parse_invocation_tests {
     fn can_parse() {
         assert_eq!(
             Parser::for_str("-> target branch ; ").parse_invocation(),
-            Ok(s0::Invocation::new(
-                Name::new("target"),
-                Name::new("branch")
-            ))
+            Ok(s0::Invocation {
+                target: Name::new("target"),
+                branch: Name::new("branch"),
+            })
         );
         assert_eq!(
             Parser::for_str("->target branch;").parse_invocation(),
-            Ok(s0::Invocation::new(
-                Name::new("target"),
-                Name::new("branch")
-            ))
+            Ok(s0::Invocation {
+                target: Name::new("target"),
+                branch: Name::new("branch"),
+            })
         );
         check_all_prefixes("->target branch;");
     }
@@ -658,9 +706,13 @@ where
         let invocation = self.parse_invocation()?;
         self.skip_whitespace();
         self.require_operator("}")?;
-        Ok(s0::Block::new(
-            name, containing, receiving, statements, invocation,
-        ))
+        Ok(s0::Block {
+            name,
+            containing,
+            receiving,
+            statements,
+            invocation,
+        })
     }
 }
 
@@ -691,16 +743,26 @@ mod parse_s0_block_tests {
                 "}",
             ))
             .parse_s0_block(),
-            Ok(s0::Block::new(
-                Name::new("block_name"),
-                vec![Name::new("closed_over")],
-                vec![Name::new("input")],
-                vec![
-                    s0::Statement::create_literal(Name::new("@lit"), "foo".as_bytes().to_vec()),
-                    s0::Statement::create_atom(Name::new("@atom")),
+            Ok(s0::Block {
+                name: Name::new("block_name"),
+                containing: vec![Name::new("closed_over")],
+                receiving: vec![Name::new("input")],
+                statements: vec![
+                    s0::CreateLiteral {
+                        dest: Name::new("@lit"),
+                        value: "foo".as_bytes().to_vec(),
+                    }
+                    .into(),
+                    s0::CreateAtom {
+                        dest: Name::new("@atom"),
+                    }
+                    .into(),
                 ],
-                s0::Invocation::new(Name::new("closed_over"), Name::new("branch"))
-            ))
+                invocation: s0::Invocation {
+                    target: Name::new("closed_over"),
+                    branch: Name::new("branch"),
+                },
+            })
         );
         assert_eq!(
             Parser::for_str(concat!(
@@ -714,16 +776,26 @@ mod parse_s0_block_tests {
                 "}",
             ))
             .parse_s0_block(),
-            Ok(s0::Block::new(
-                Name::new("block_name"),
-                vec![Name::new("closed_over")],
-                vec![Name::new("input")],
-                vec![
-                    s0::Statement::create_literal(Name::new("@lit"), "foo".as_bytes().to_vec()),
-                    s0::Statement::create_atom(Name::new("@atom")),
+            Ok(s0::Block {
+                name: Name::new("block_name"),
+                containing: vec![Name::new("closed_over")],
+                receiving: vec![Name::new("input")],
+                statements: vec![
+                    s0::CreateLiteral {
+                        dest: Name::new("@lit"),
+                        value: "foo".as_bytes().to_vec(),
+                    }
+                    .into(),
+                    s0::CreateAtom {
+                        dest: Name::new("@atom"),
+                    }
+                    .into(),
                 ],
-                s0::Invocation::new(Name::new("closed_over"), Name::new("branch"))
-            ))
+                invocation: s0::Invocation {
+                    target: Name::new("closed_over"),
+                    branch: Name::new("branch"),
+                },
+            })
         );
         check_all_prefixes(concat!(
             "block_name: ",
@@ -799,16 +871,26 @@ mod parse_s0_module_tests {
             .parse_s0_module(),
             Ok(s0::ParsedModule::new(
                 Name::new("@mod"),
-                vec![s0::Block::new(
-                    Name::new("@block"),
-                    vec![Name::new("closed_over")],
-                    vec![Name::new("input")],
-                    vec![
-                        s0::Statement::create_literal(Name::new("@lit"), "foo".as_bytes().to_vec()),
-                        s0::Statement::create_atom(Name::new("@atom")),
+                vec![s0::Block {
+                    name: Name::new("@block"),
+                    containing: vec![Name::new("closed_over")],
+                    receiving: vec![Name::new("input")],
+                    statements: vec![
+                        s0::CreateLiteral {
+                            dest: Name::new("@lit"),
+                            value: "foo".as_bytes().to_vec(),
+                        }
+                        .into(),
+                        s0::CreateAtom {
+                            dest: Name::new("@atom"),
+                        }
+                        .into(),
                     ],
-                    s0::Invocation::new(Name::new("closed_over"), Name::new("branch"))
-                )]
+                    invocation: s0::Invocation {
+                        target: Name::new("closed_over"),
+                        branch: Name::new("branch"),
+                    },
+                }]
             ))
         );
         assert_eq!(
@@ -827,16 +909,26 @@ mod parse_s0_module_tests {
             .parse_s0_module(),
             Ok(s0::ParsedModule::new(
                 Name::new("@mod"),
-                vec![s0::Block::new(
-                    Name::new("@block"),
-                    vec![Name::new("closed_over")],
-                    vec![Name::new("input")],
-                    vec![
-                        s0::Statement::create_literal(Name::new("@lit"), "foo".as_bytes().to_vec()),
-                        s0::Statement::create_atom(Name::new("@atom")),
+                vec![s0::Block {
+                    name: Name::new("@block"),
+                    containing: vec![Name::new("closed_over")],
+                    receiving: vec![Name::new("input")],
+                    statements: vec![
+                        s0::CreateLiteral {
+                            dest: Name::new("@lit"),
+                            value: "foo".as_bytes().to_vec(),
+                        }
+                        .into(),
+                        s0::CreateAtom {
+                            dest: Name::new("@atom"),
+                        }
+                        .into(),
                     ],
-                    s0::Invocation::new(Name::new("closed_over"), Name::new("branch"))
-                )]
+                    invocation: s0::Invocation {
+                        target: Name::new("closed_over"),
+                        branch: Name::new("branch"),
+                    },
+                }]
             ))
         );
         check_all_prefixes(concat!(
@@ -1467,14 +1559,15 @@ where
         };
         self.skip_whitespace();
         let continuation = self.parse_call_continuation()?;
-        Ok(s1::Statement::Call(s1::Call {
+        Ok(s1::Call {
             target,
             branch,
             named_parameters,
             closure_parameters,
             results,
             continuation,
-        }))
+        }
+        .into())
     }
 }
 
@@ -1512,7 +1605,10 @@ mod parse_s1_statement_tests {
     fn can_parse_create_atom() {
         assert_eq!(
             Parser::for_str("foo=atom;").parse_s1_statement(),
-            Ok(s0::Statement::create_atom(Name::new("foo")).into())
+            Ok(s0::CreateAtom {
+                dest: Name::new("foo"),
+            }
+            .into())
         );
     }
 
@@ -1525,14 +1621,22 @@ mod parse_s1_statement_tests {
                 "branch false = @false;",
             ))
             .parse_s1_statement(),
-            Ok(s0::Statement::create_closure(
-                Name::new("foo"),
-                vec![Name::new("foo"), Name::new("bar")],
-                vec![
-                    s0::BranchRef::new(Name::new("true"), Name::new("@true")),
-                    s0::BranchRef::new(Name::new("false"), Name::new("@false")),
-                ]
-            )
+            Ok(s0::CreateClosure {
+                dest: Name::new("foo"),
+                close_over: vec![Name::new("foo"), Name::new("bar")],
+                branches: vec![
+                    s0::BranchRef {
+                        branch_name: Name::new("true"),
+                        block_name: Name::new("@true"),
+                        resolved: 0
+                    },
+                    s0::BranchRef {
+                        branch_name: Name::new("false"),
+                        block_name: Name::new("@false"),
+                        resolved: 0
+                    },
+                ],
+            }
             .into())
         );
     }
@@ -1541,7 +1645,11 @@ mod parse_s1_statement_tests {
     fn can_parse_create_literal() {
         assert_eq!(
             Parser::for_str("foo = literal bar;").parse_s1_statement(),
-            Ok(s0::Statement::create_literal(Name::new("foo"), "bar".as_bytes().to_vec()).into())
+            Ok(s0::CreateLiteral {
+                dest: Name::new("foo"),
+                value: "bar".as_bytes().to_vec(),
+            }
+            .into())
         );
     }
 
@@ -1549,7 +1657,11 @@ mod parse_s1_statement_tests {
     fn can_parse_rename() {
         assert_eq!(
             Parser::for_str("foo = rename bar;").parse_s1_statement(),
-            Ok(s0::Statement::rename(Name::new("foo"), Name::new("bar")).into())
+            Ok(s0::Rename {
+                dest: Name::new("foo"),
+                source: Name::new("bar"),
+            }
+            .into())
         );
     }
 
@@ -1557,30 +1669,32 @@ mod parse_s1_statement_tests {
     fn can_parse_call() {
         assert_eq!(
             Parser::for_str("foo::bar();").parse_s1_statement(),
-            Ok(s1::Statement::Call(s1::Call {
+            Ok(s1::Call {
                 target: Name::new("foo"),
                 branch: Name::new("bar"),
                 named_parameters: vec![],
                 closure_parameters: vec![],
                 results: vec![],
                 continuation: s1::Continuation::UseDefault,
-            }))
+            }
+            .into())
         );
         assert_eq!(
             Parser::for_str("foo::bar ( ) ;").parse_s1_statement(),
-            Ok(s1::Statement::Call(s1::Call {
+            Ok(s1::Call {
                 target: Name::new("foo"),
                 branch: Name::new("bar"),
                 named_parameters: vec![],
                 closure_parameters: vec![],
                 results: vec![],
                 continuation: s1::Continuation::UseDefault,
-            }))
+            }
+            .into())
         );
 
         assert_eq!(
             Parser::for_str("foo::bar(param1,param2<-var);").parse_s1_statement(),
-            Ok(s1::Statement::Call(s1::Call {
+            Ok(s1::Call {
                 target: Name::new("foo"),
                 branch: Name::new("bar"),
                 named_parameters: vec![
@@ -1596,11 +1710,12 @@ mod parse_s1_statement_tests {
                 closure_parameters: vec![],
                 results: vec![],
                 continuation: s1::Continuation::UseDefault,
-            }))
+            }
+            .into())
         );
         assert_eq!(
             Parser::for_str("foo::bar ( param1 , param2 <- var ) ;").parse_s1_statement(),
-            Ok(s1::Statement::Call(s1::Call {
+            Ok(s1::Call {
                 target: Name::new("foo"),
                 branch: Name::new("bar"),
                 named_parameters: vec![
@@ -1616,13 +1731,14 @@ mod parse_s1_statement_tests {
                 closure_parameters: vec![],
                 results: vec![],
                 continuation: s1::Continuation::UseDefault,
-            }))
+            }
+            .into())
         );
 
         assert_eq!(
             Parser::for_str("foo::bar(param1,param2<-var)block(close1)::branch->(){};")
                 .parse_s1_statement(),
-            Ok(s1::Statement::Call(s1::Call {
+            Ok(s1::Call {
                 target: Name::new("foo"),
                 branch: Name::new("bar"),
                 named_parameters: vec![
@@ -1646,7 +1762,8 @@ mod parse_s1_statement_tests {
                 }],
                 results: vec![],
                 continuation: s1::Continuation::UseDefault,
-            }))
+            }
+            .into())
         );
         assert_eq!(
             Parser::for_str(concat!(
@@ -1654,7 +1771,7 @@ mod parse_s1_statement_tests {
                 "block ( close1 ) ::branch -> ( ) { } ;",
             ))
             .parse_s1_statement(),
-            Ok(s1::Statement::Call(s1::Call {
+            Ok(s1::Call {
                 target: Name::new("foo"),
                 branch: Name::new("bar"),
                 named_parameters: vec![
@@ -1678,7 +1795,8 @@ mod parse_s1_statement_tests {
                 }],
                 results: vec![],
                 continuation: s1::Continuation::UseDefault,
-            }))
+            }
+            .into())
         );
 
         assert_eq!(
@@ -1687,7 +1805,7 @@ mod parse_s1_statement_tests {
                 "->(result1,result2);",
             ),)
             .parse_s1_statement(),
-            Ok(s1::Statement::Call(s1::Call {
+            Ok(s1::Call {
                 target: Name::new("foo"),
                 branch: Name::new("bar"),
                 named_parameters: vec![
@@ -1711,7 +1829,8 @@ mod parse_s1_statement_tests {
                 }],
                 results: vec![Name::new("result1"), Name::new("result2")],
                 continuation: s1::Continuation::UseDefault,
-            }))
+            }
+            .into())
         );
         assert_eq!(
             Parser::for_str(concat!(
@@ -1719,7 +1838,7 @@ mod parse_s1_statement_tests {
                 "-> ( result1 , result2 ) ;",
             ))
             .parse_s1_statement(),
-            Ok(s1::Statement::Call(s1::Call {
+            Ok(s1::Call {
                 target: Name::new("foo"),
                 branch: Name::new("bar"),
                 named_parameters: vec![
@@ -1743,7 +1862,8 @@ mod parse_s1_statement_tests {
                 }],
                 results: vec![Name::new("result1"), Name::new("result2")],
                 continuation: s1::Continuation::UseDefault,
-            }))
+            }
+            .into())
         );
 
         assert_eq!(
@@ -1752,7 +1872,7 @@ mod parse_s1_statement_tests {
                 "->(result1,result2)~>foo;",
             ))
             .parse_s1_statement(),
-            Ok(s1::Statement::Call(s1::Call {
+            Ok(s1::Call {
                 target: Name::new("foo"),
                 branch: Name::new("bar"),
                 named_parameters: vec![
@@ -1780,7 +1900,8 @@ mod parse_s1_statement_tests {
                     name: None,
                     branch_name: None,
                 },
-            }))
+            }
+            .into())
         );
         assert_eq!(
             Parser::for_str(concat!(
@@ -1788,7 +1909,7 @@ mod parse_s1_statement_tests {
                 "-> ( result1 , result2 ) ~> foo ;",
             ))
             .parse_s1_statement(),
-            Ok(s1::Statement::Call(s1::Call {
+            Ok(s1::Call {
                 target: Name::new("foo"),
                 branch: Name::new("bar"),
                 named_parameters: vec![
@@ -1816,7 +1937,8 @@ mod parse_s1_statement_tests {
                     name: None,
                     branch_name: None,
                 },
-            }))
+            }
+            .into())
         );
 
         assert_eq!(
@@ -1825,7 +1947,7 @@ mod parse_s1_statement_tests {
                 "->(result1,result2)~>foo(bar::baz);",
             ))
             .parse_s1_statement(),
-            Ok(s1::Statement::Call(s1::Call {
+            Ok(s1::Call {
                 target: Name::new("foo"),
                 branch: Name::new("bar"),
                 named_parameters: vec![
@@ -1853,7 +1975,8 @@ mod parse_s1_statement_tests {
                     name: Some(Name::new("bar")),
                     branch_name: Some(Name::new("baz")),
                 },
-            }))
+            }
+            .into())
         );
         assert_eq!(
             Parser::for_str(concat!(
@@ -1861,7 +1984,7 @@ mod parse_s1_statement_tests {
                 "-> ( result1 , result2 ) ~> foo ( bar::baz ) ;",
             ))
             .parse_s1_statement(),
-            Ok(s1::Statement::Call(s1::Call {
+            Ok(s1::Call {
                 target: Name::new("foo"),
                 branch: Name::new("bar"),
                 named_parameters: vec![
@@ -1889,7 +2012,8 @@ mod parse_s1_statement_tests {
                     name: Some(Name::new("bar")),
                     branch_name: Some(Name::new("baz")),
                 },
-            }))
+            }
+            .into())
         );
 
         assert_eq!(
@@ -1898,7 +2022,7 @@ mod parse_s1_statement_tests {
                 "->(result1,result2)=>foo::bar;",
             ))
             .parse_s1_statement(),
-            Ok(s1::Statement::Call(s1::Call {
+            Ok(s1::Call {
                 target: Name::new("foo"),
                 branch: Name::new("bar"),
                 named_parameters: vec![
@@ -1925,7 +2049,8 @@ mod parse_s1_statement_tests {
                     param_name: Name::new("foo"),
                     branch_name: Name::new("bar"),
                 },
-            }))
+            }
+            .into())
         );
         assert_eq!(
             Parser::for_str(concat!(
@@ -1933,7 +2058,7 @@ mod parse_s1_statement_tests {
                 "-> ( result1 , result2 ) => foo::bar ;",
             ))
             .parse_s1_statement(),
-            Ok(s1::Statement::Call(s1::Call {
+            Ok(s1::Call {
                 target: Name::new("foo"),
                 branch: Name::new("bar"),
                 named_parameters: vec![
@@ -1960,7 +2085,8 @@ mod parse_s1_statement_tests {
                     param_name: Name::new("foo"),
                     branch_name: Name::new("bar"),
                 },
-            }))
+            }
+            .into())
         );
 
         check_all_prefixes("foo::bar();");
@@ -2040,8 +2166,15 @@ mod parse_s1_statement_list_tests {
             ))
             .parse_s1_statement_list(),
             Ok(vec![
-                s0::Statement::create_literal(Name::new("@lit"), "foo".as_bytes().to_vec()).into(),
-                s0::Statement::create_atom(Name::new("@atom")).into(),
+                s0::CreateLiteral {
+                    dest: Name::new("@lit"),
+                    value: "foo".as_bytes().to_vec()
+                }
+                .into(),
+                s0::CreateAtom {
+                    dest: Name::new("@atom")
+                }
+                .into(),
             ])
         );
     }
@@ -2115,10 +2248,16 @@ mod parse_s1_block_tests {
                 containing: vec![Name::new("closed_over")],
                 receiving: vec![Name::new("input")],
                 statements: vec![
-                    s0::Statement::create_literal(Name::new("@lit"), "foo".as_bytes().to_vec())
-                        .into(),
-                    s0::Statement::create_atom(Name::new("@atom")).into(),
-                    s1::Statement::Call(s1::Call {
+                    s0::CreateLiteral {
+                        dest: Name::new("@lit"),
+                        value: "foo".as_bytes().to_vec(),
+                    }
+                    .into(),
+                    s0::CreateAtom {
+                        dest: Name::new("@atom"),
+                    }
+                    .into(),
+                    s1::Call {
                         target: Name::new("foo"),
                         branch: Name::new("bar"),
                         named_parameters: vec![
@@ -2142,7 +2281,8 @@ mod parse_s1_block_tests {
                         }],
                         results: vec![],
                         continuation: s1::Continuation::UseDefault,
-                    }),
+                    }
+                    .into(),
                 ],
             })
         );
@@ -2163,10 +2303,16 @@ mod parse_s1_block_tests {
                 containing: vec![Name::new("closed_over")],
                 receiving: vec![Name::new("input")],
                 statements: vec![
-                    s0::Statement::create_literal(Name::new("@lit"), "foo".as_bytes().to_vec())
-                        .into(),
-                    s0::Statement::create_atom(Name::new("@atom")).into(),
-                    s1::Statement::Call(s1::Call {
+                    s0::CreateLiteral {
+                        dest: Name::new("@lit"),
+                        value: "foo".as_bytes().to_vec(),
+                    }
+                    .into(),
+                    s0::CreateAtom {
+                        dest: Name::new("@atom"),
+                    }
+                    .into(),
+                    s1::Call {
                         target: Name::new("foo"),
                         branch: Name::new("bar"),
                         named_parameters: vec![
@@ -2190,7 +2336,8 @@ mod parse_s1_block_tests {
                         }],
                         results: vec![],
                         continuation: s1::Continuation::UseDefault,
-                    }),
+                    }
+                    .into(),
                 ],
             })
         );
@@ -2267,10 +2414,16 @@ mod parse_s1_module_tests {
                     containing: vec![Name::new("closed_over")],
                     receiving: vec![Name::new("input")],
                     statements: vec![
-                        s0::Statement::create_literal(Name::new("@lit"), "foo".as_bytes().to_vec())
-                            .into(),
-                        s0::Statement::create_atom(Name::new("@atom")).into(),
-                        s1::Statement::Call(s1::Call {
+                        s0::CreateLiteral {
+                            dest: Name::new("@lit"),
+                            value: "foo".as_bytes().to_vec(),
+                        }
+                        .into(),
+                        s0::CreateAtom {
+                            dest: Name::new("@atom"),
+                        }
+                        .into(),
+                        s1::Call {
                             target: Name::new("foo"),
                             branch: Name::new("bar"),
                             named_parameters: vec![
@@ -2294,7 +2447,8 @@ mod parse_s1_module_tests {
                             }],
                             results: vec![],
                             continuation: s1::Continuation::UseDefault,
-                        }),
+                        }
+                        .into(),
                     ],
                 }]
             ))
@@ -2320,10 +2474,16 @@ mod parse_s1_module_tests {
                     containing: vec![Name::new("closed_over")],
                     receiving: vec![Name::new("input")],
                     statements: vec![
-                        s0::Statement::create_literal(Name::new("@lit"), "foo".as_bytes().to_vec())
-                            .into(),
-                        s0::Statement::create_atom(Name::new("@atom")).into(),
-                        s1::Statement::Call(s1::Call {
+                        s0::CreateLiteral {
+                            dest: Name::new("@lit"),
+                            value: "foo".as_bytes().to_vec(),
+                        }
+                        .into(),
+                        s0::CreateAtom {
+                            dest: Name::new("@atom"),
+                        }
+                        .into(),
+                        s1::Call {
                             target: Name::new("foo"),
                             branch: Name::new("bar"),
                             named_parameters: vec![
@@ -2347,7 +2507,8 @@ mod parse_s1_module_tests {
                             }],
                             results: vec![],
                             continuation: s1::Continuation::UseDefault,
-                        }),
+                        }
+                        .into(),
                     ],
                 }]
             ))

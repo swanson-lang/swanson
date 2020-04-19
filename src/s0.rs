@@ -123,24 +123,6 @@ pub struct Block {
     pub invocation: Invocation,
 }
 
-impl Block {
-    pub fn new(
-        name: Name,
-        containing: Vec<Name>,
-        receiving: Vec<Name>,
-        statements: Vec<Statement>,
-        invocation: Invocation,
-    ) -> Block {
-        Block {
-            name,
-            containing,
-            receiving,
-            statements,
-            invocation,
-        }
-    }
-}
-
 //-------------------------------------------------------------------------------------------------
 // Statements
 
@@ -148,9 +130,17 @@ impl Block {
 /// the environment.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Statement {
+    /// A statement that creates a new atom.
     CreateAtom(CreateAtom),
+    /// A statement that creates a new closure.  The closure consists of one or more _branches_.
+    /// Each branch has a name, and is definition is provided by one of the blocks in the module.
+    /// The closure also _closes over_ some entities in the environment, moving them into the
+    /// closure.  (They are removed from the environment as part of making the closure, and are no
+    /// longer available for the remainder of the current block.)
     CreateClosure(CreateClosure),
+    /// A statement that creates a new literal.
     CreateLiteral(CreateLiteral),
+    /// A statement that renames an existing entity in the environment.
     Rename(Rename),
 }
 
@@ -159,10 +149,9 @@ pub struct CreateAtom {
     pub dest: Name,
 }
 
-impl Statement {
-    /// A statement that creates a new atom.
-    pub fn create_atom(dest: Name) -> Statement {
-        Statement::CreateAtom(CreateAtom { dest })
+impl From<CreateAtom> for Statement {
+    fn from(stmt: CreateAtom) -> Statement {
+        Statement::CreateAtom(stmt)
     }
 }
 
@@ -173,16 +162,6 @@ pub struct BranchRef {
     pub resolved: usize,
 }
 
-impl BranchRef {
-    pub fn new(branch_name: Name, block_name: Name) -> BranchRef {
-        BranchRef {
-            branch_name,
-            block_name,
-            resolved: 0,
-        }
-    }
-}
-
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CreateClosure {
     pub dest: Name,
@@ -190,22 +169,9 @@ pub struct CreateClosure {
     pub branches: Vec<BranchRef>,
 }
 
-impl Statement {
-    /// A statement that creates a new closure.  The closure consists of one or more _branches_.
-    /// Each branch has a name, and is definition is provided by one of the blocks in the module.
-    /// The closure also _closes over_ some entities in the environment, moving them into the
-    /// closure.  (They are removed from the environment as part of making the closure, and are no
-    /// longer available for the remainder of the current block.)
-    pub fn create_closure(
-        dest: Name,
-        close_over: Vec<Name>,
-        branches: Vec<BranchRef>,
-    ) -> Statement {
-        Statement::CreateClosure(CreateClosure {
-            dest,
-            close_over,
-            branches,
-        })
+impl From<CreateClosure> for Statement {
+    fn from(stmt: CreateClosure) -> Statement {
+        Statement::CreateClosure(stmt)
     }
 }
 
@@ -215,10 +181,9 @@ pub struct CreateLiteral {
     pub value: Vec<u8>,
 }
 
-impl Statement {
-    /// A statement that creates a new literal.
-    pub fn create_literal(dest: Name, value: Vec<u8>) -> Statement {
-        Statement::CreateLiteral(CreateLiteral { dest, value })
+impl From<CreateLiteral> for Statement {
+    fn from(stmt: CreateLiteral) -> Statement {
+        Statement::CreateLiteral(stmt)
     }
 }
 
@@ -228,10 +193,9 @@ pub struct Rename {
     pub source: Name,
 }
 
-impl Statement {
-    /// A statement that renames an existing entity in the environment.
-    pub fn rename(dest: Name, source: Name) -> Statement {
-        Statement::Rename(Rename { dest, source })
+impl From<Rename> for Statement {
+    fn from(stmt: Rename) -> Statement {
+        Statement::Rename(stmt)
     }
 }
 
@@ -244,12 +208,6 @@ impl Statement {
 pub struct Invocation {
     pub target: Name,
     pub branch: Name,
-}
-
-impl Invocation {
-    pub fn new(target: Name, branch: Name) -> Invocation {
-        Invocation { target, branch }
-    }
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -441,23 +399,36 @@ mod macro_tests {
             ParsedModule::new(
                 Name::new("mod"),
                 vec![
-                    Block::new(
-                        Name::new("block"),
-                        vec![Name::new("closed_over")],
-                        vec![Name::new("input")],
-                        vec![
-                            Statement::create_literal(Name::new("lit"), "foo".as_bytes().to_vec()),
-                            Statement::create_atom(Name::new("atom")),
+                    Block {
+                        name: Name::new("block"),
+                        containing: vec![Name::new("closed_over")],
+                        receiving: vec![Name::new("input")],
+                        statements: vec![
+                            CreateLiteral {
+                                dest: Name::new("lit"),
+                                value: "foo".as_bytes().to_vec(),
+                            }
+                            .into(),
+                            CreateAtom {
+                                dest: Name::new("atom"),
+                            }
+                            .into(),
                         ],
-                        Invocation::new(Name::new("closed_over"), Name::new("branch"))
-                    ),
-                    Block::new(
-                        Name::new("@b1"),
-                        vec![],
-                        vec![Name::new("result")],
-                        vec![],
-                        Invocation::new(Name::new("result"), Name::new("return"))
-                    ),
+                        invocation: Invocation {
+                            target: Name::new("closed_over"),
+                            branch: Name::new("branch"),
+                        },
+                    },
+                    Block {
+                        name: Name::new("@b1"),
+                        containing: vec![],
+                        receiving: vec![Name::new("result")],
+                        statements: vec![],
+                        invocation: Invocation {
+                            target: Name::new("result"),
+                            branch: Name::new("return"),
+                        },
+                    },
                 ]
             )
         );

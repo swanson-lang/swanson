@@ -55,6 +55,36 @@ impl From<s0::Statement> for Statement {
     }
 }
 
+impl From<s0::CreateAtom> for Statement {
+    fn from(stmt: s0::CreateAtom) -> Statement {
+        Statement::S0Statement(stmt.into())
+    }
+}
+
+impl From<s0::CreateClosure> for Statement {
+    fn from(stmt: s0::CreateClosure) -> Statement {
+        Statement::S0Statement(stmt.into())
+    }
+}
+
+impl From<s0::CreateLiteral> for Statement {
+    fn from(stmt: s0::CreateLiteral) -> Statement {
+        Statement::S0Statement(stmt.into())
+    }
+}
+
+impl From<s0::Rename> for Statement {
+    fn from(stmt: s0::Rename) -> Statement {
+        Statement::S0Statement(stmt.into())
+    }
+}
+
+impl From<Call> for Statement {
+    fn from(stmt: Call) -> Statement {
+        Statement::Call(stmt)
+    }
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Call {
     pub target: Name,
