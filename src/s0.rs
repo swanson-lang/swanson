@@ -18,6 +18,7 @@
 use std::borrow::Borrow;
 use std::collections::HashMap;
 use std::collections::HashSet;
+use std::fmt::Debug;
 use std::fmt::Display;
 use std::sync::Arc;
 
@@ -31,7 +32,7 @@ use crate::parser::Parser;
 ///
 /// Note that names in S₀ can be arbitrary binary content — no restriction that they're strings
 /// with any particular encoding.
-#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[derive(Clone, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct Name(Vec<u8>);
 
 impl Name {
@@ -52,11 +53,17 @@ impl Borrow<[u8]> for Name {
     }
 }
 
+impl Debug for Name {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        let string = String::from_utf8(self.0.clone()).expect("Invalid UTF-8 name");
+        write!(f, "{:?}", string)
+    }
+}
+
 impl Display for Name {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        String::from_utf8(self.0.clone())
-            .expect("Invalid UTF-8 name")
-            .fmt(f)
+        let string = String::from_utf8(self.0.clone()).expect("Invalid UTF-8 name");
+        write!(f, "{}", string)
     }
 }
 
@@ -407,7 +414,7 @@ impl ParsedModule {
 /// Parse S₀ source code into its internal AST representation.
 pub fn parse_module(input: &str) -> Result<ParsedModule, ParseError> {
     let mut parser = Parser::for_str(input);
-    parser.parse_module()
+    parser.parse_s0_module()
 }
 
 #[cfg(test)]

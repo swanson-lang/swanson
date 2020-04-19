@@ -17,6 +17,7 @@ use std::iter::Peekable;
 
 use crate::s0;
 use crate::s0::Name;
+use crate::s1;
 
 /// Indicates that an error occurred while trying to parse the content of an S₀ program.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -42,6 +43,9 @@ impl Parser<std::str::Chars<'_>> {
         }
     }
 }
+
+//-------------------------------------------------------------------------------------------------
+// Common stuff
 
 impl<I> Parser<I>
 where
@@ -212,7 +216,7 @@ mod require_operator_tests {
 
 fn is_bare_name_character(ch: char) -> bool {
     match ch {
-        'A'..='Z' | 'a'..='z' | '0'..='9' | '@' | '$' | '_' | '-' | '.' => true,
+        'A'..='Z' | 'a'..='z' | '0'..='9' | '@' | '$' | '_' | '.' => true,
         _ => false,
     }
 }
@@ -361,16 +365,22 @@ mod parse_name_list_tests {
     }
 }
 
+//-------------------------------------------------------------------------------------------------
+// S₀
+
 impl<I> Parser<I>
 where
     I: Iterator<Item = char>,
 {
-    fn parse_statement(&mut self) -> Result<s0::Statement, ParseError> {
+    fn parse_s0_statement(&mut self) -> Result<s0::Statement, ParseError> {
         let dest = self.parse_name()?;
         self.skip_whitespace();
         self.require_operator("=")?;
         self.skip_whitespace();
+        self.parse_s0_statement_inner(dest)
+    }
 
+    fn parse_s0_statement_inner(&mut self, dest: Name) -> Result<s0::Statement, ParseError> {
         let ch = self.require_peek()?;
         match ch {
             'a' => self.parse_create_atom(dest),
@@ -465,13 +475,13 @@ where
 }
 
 #[cfg(test)]
-mod parse_statement_tests {
+mod parse_s0_statement_tests {
     use super::*;
 
     fn check_all_prefixes(input: &str) {
         for len in 0..input.len() {
             assert_eq!(
-                Parser::for_str(&input[0..len]).parse_statement(),
+                Parser::for_str(&input[0..len]).parse_s0_statement(),
                 Err(ParseError::UnexpectedEnd)
             );
         }
@@ -480,11 +490,11 @@ mod parse_statement_tests {
     #[test]
     fn can_parse_create_atom() {
         assert_eq!(
-            Parser::for_str("foo = atom ; ").parse_statement(),
+            Parser::for_str("foo = atom ; ").parse_s0_statement(),
             Ok(s0::Statement::create_atom(Name::new("foo")))
         );
         assert_eq!(
-            Parser::for_str("foo=atom;").parse_statement(),
+            Parser::for_str("foo=atom;").parse_s0_statement(),
             Ok(s0::Statement::create_atom(Name::new("foo")))
         );
         check_all_prefixes("foo=atom;");
@@ -496,9 +506,9 @@ mod parse_statement_tests {
             Parser::for_str(concat!(
                 "foo = closure containing ( foo , bar ) ",
                 "branch true = @true , ",
-                "branch false = @false ; "
+                "branch false = @false ; ",
             ))
-            .parse_statement(),
+            .parse_s0_statement(),
             Ok(s0::Statement::create_closure(
                 Name::new("foo"),
                 vec![Name::new("foo"), Name::new("bar")],
@@ -512,9 +522,9 @@ mod parse_statement_tests {
             Parser::for_str(concat!(
                 "foo=closure containing(foo,bar)",
                 "branch true=@true,",
-                "branch false=@false;"
+                "branch false=@false;",
             ))
-            .parse_statement(),
+            .parse_s0_statement(),
             Ok(s0::Statement::create_closure(
                 Name::new("foo"),
                 vec![Name::new("foo"), Name::new("bar")],
@@ -530,14 +540,14 @@ mod parse_statement_tests {
     #[test]
     fn can_parse_create_literal() {
         assert_eq!(
-            Parser::for_str("foo = literal bar ; ").parse_statement(),
+            Parser::for_str("foo = literal bar ; ").parse_s0_statement(),
             Ok(s0::Statement::create_literal(
                 Name::new("foo"),
                 "bar".as_bytes().to_vec()
             ))
         );
         assert_eq!(
-            Parser::for_str("foo=literal bar;").parse_statement(),
+            Parser::for_str("foo=literal bar;").parse_s0_statement(),
             Ok(s0::Statement::create_literal(
                 Name::new("foo"),
                 "bar".as_bytes().to_vec()
@@ -549,11 +559,11 @@ mod parse_statement_tests {
     #[test]
     fn can_parse_rename() {
         assert_eq!(
-            Parser::for_str("foo = rename bar ; ").parse_statement(),
+            Parser::for_str("foo = rename bar ; ").parse_s0_statement(),
             Ok(s0::Statement::rename(Name::new("foo"), Name::new("bar")))
         );
         assert_eq!(
-            Parser::for_str("foo=rename bar;").parse_statement(),
+            Parser::for_str("foo=rename bar;").parse_s0_statement(),
             Ok(s0::Statement::rename(Name::new("foo"), Name::new("bar")))
         );
         check_all_prefixes("foo=rename bar;");
@@ -625,7 +635,7 @@ where
     ///   [invocation]
     /// }
     /// ```
-    fn parse_block(&mut self) -> Result<s0::Block, ParseError> {
+    fn parse_s0_block(&mut self) -> Result<s0::Block, ParseError> {
         let name = self.parse_name()?;
         self.skip_whitespace();
         self.require_operator(":")?;
@@ -642,7 +652,7 @@ where
         self.skip_whitespace();
         let mut statements = Vec::new();
         while self.require_peek()? != '-' {
-            statements.push(self.parse_statement()?);
+            statements.push(self.parse_s0_statement()?);
             self.skip_whitespace();
         }
         let invocation = self.parse_invocation()?;
@@ -655,13 +665,13 @@ where
 }
 
 #[cfg(test)]
-mod parse_block_tests {
+mod parse_s0_block_tests {
     use super::*;
 
     fn check_all_prefixes(input: &str) {
         for len in 0..input.len() {
             assert_eq!(
-                Parser::for_str(&input[0..len]).parse_block(),
+                Parser::for_str(&input[0..len]).parse_s0_block(),
                 Err(ParseError::UnexpectedEnd)
             );
         }
@@ -680,7 +690,7 @@ mod parse_block_tests {
                 "  -> closed_over branch; ",
                 "}",
             ))
-            .parse_block(),
+            .parse_s0_block(),
             Ok(s0::Block::new(
                 Name::new("block_name"),
                 vec![Name::new("closed_over")],
@@ -703,7 +713,7 @@ mod parse_block_tests {
                 "->closed_over branch;",
                 "}",
             ))
-            .parse_block(),
+            .parse_s0_block(),
             Ok(s0::Block::new(
                 Name::new("block_name"),
                 vec![Name::new("closed_over")],
@@ -738,7 +748,7 @@ where
     ///   ...
     /// }
     /// ```
-    pub(crate) fn parse_module(&mut self) -> Result<s0::ParsedModule, ParseError> {
+    pub(crate) fn parse_s0_module(&mut self) -> Result<s0::ParsedModule, ParseError> {
         self.skip_whitespace();
         self.require_keyword("module")?;
         self.skip_whitespace();
@@ -752,20 +762,20 @@ where
                 self.it.next();
                 return Ok(s0::ParsedModule::new(name, blocks));
             }
-            let block = self.parse_block()?;
+            let block = self.parse_s0_block()?;
             blocks.push(block);
         }
     }
 }
 
 #[cfg(test)]
-mod parse_module_tests {
+mod parse_s0_module_tests {
     use super::*;
 
     fn check_all_prefixes(input: &str) {
         for len in 0..input.len() {
             assert_eq!(
-                Parser::for_str(&input[0..len]).parse_module(),
+                Parser::for_str(&input[0..len]).parse_s0_module(),
                 Err(ParseError::UnexpectedEnd)
             );
         }
@@ -786,7 +796,7 @@ mod parse_module_tests {
                 "    }",
                 "}",
             ))
-            .parse_module(),
+            .parse_s0_module(),
             Ok(s0::ParsedModule::new(
                 Name::new("@mod"),
                 vec![s0::Block::new(
@@ -814,7 +824,7 @@ mod parse_module_tests {
                 "}",
                 "}",
             ))
-            .parse_module(),
+            .parse_s0_module(),
             Ok(s0::ParsedModule::new(
                 Name::new("@mod"),
                 vec![s0::Block::new(
@@ -838,6 +848,1519 @@ mod parse_module_tests {
             "      @lit = literal foo; ",
             "      @atom = atom; ",
             "      -> closed_over branch; ",
+            "    }",
+            "}",
+        ));
+    }
+}
+
+//-------------------------------------------------------------------------------------------------
+// S₁
+
+impl<I> Parser<I>
+where
+    I: Iterator<Item = char>,
+{
+    fn parse_named_parameter(&mut self) -> Result<s1::NamedParameter, ParseError> {
+        let param_name = self.parse_name()?;
+        self.skip_whitespace();
+        let source = match self.it.peek() {
+            Some(ch) if *ch == '<' => {
+                self.require_operator("<-")?;
+                self.skip_whitespace();
+                Some(self.parse_name()?)
+            }
+            _ => None,
+        };
+        Ok(s1::NamedParameter { param_name, source })
+    }
+}
+
+#[cfg(test)]
+mod parse_named_parameter_tests {
+    use super::*;
+
+    #[test]
+    fn can_parse() {
+        let foo = s1::NamedParameter {
+            param_name: Name::new("foo"),
+            source: None,
+        };
+        let foo_from_bar = s1::NamedParameter {
+            param_name: Name::new("foo"),
+            source: Some(Name::new("bar")),
+        };
+        assert_eq!(
+            Parser::for_str("foo").parse_named_parameter(),
+            Ok(foo.clone())
+        );
+        assert_eq!(
+            Parser::for_str("foo <- bar").parse_named_parameter(),
+            Ok(foo_from_bar.clone())
+        );
+        assert_eq!(
+            Parser::for_str("foo<-bar").parse_named_parameter(),
+            Ok(foo_from_bar.clone())
+        );
+        assert_eq!(
+            Parser::for_str("foo <=").parse_named_parameter(),
+            Err(ParseError::UnexpectedCharacter)
+        );
+        assert_eq!(
+            Parser::for_str("foo <-").parse_named_parameter(),
+            Err(ParseError::UnexpectedEnd)
+        );
+    }
+}
+
+impl<I> Parser<I>
+where
+    I: Iterator<Item = char>,
+{
+    fn parse_named_parameters(&mut self) -> Result<Vec<s1::NamedParameter>, ParseError> {
+        let mut result = Vec::new();
+
+        self.require_operator("(")?;
+        self.skip_whitespace();
+        let ch = self.require_peek()?;
+        if ch == ')' {
+            self.it.next();
+            return Ok(result);
+        }
+        result.push(self.parse_named_parameter()?);
+
+        loop {
+            self.skip_whitespace();
+            let ch = self.require_peek()?;
+            if ch == ')' {
+                self.it.next();
+                return Ok(result);
+            }
+            self.require_operator(",")?;
+            self.skip_whitespace();
+            result.push(self.parse_named_parameter()?);
+        }
+    }
+}
+
+#[cfg(test)]
+mod parse_named_parameters_tests {
+    use super::*;
+
+    fn check_all_prefixes(input: &str) {
+        for len in 0..input.len() {
+            assert_eq!(
+                Parser::for_str(&input[0..len]).parse_named_parameters(),
+                Err(ParseError::UnexpectedEnd),
+            );
+        }
+    }
+
+    #[test]
+    fn can_parse() {
+        let foo = s1::NamedParameter {
+            param_name: Name::new("foo"),
+            source: None,
+        };
+        let bar = s1::NamedParameter {
+            param_name: Name::new("bar"),
+            source: None,
+        };
+        let foo_from_bar = s1::NamedParameter {
+            param_name: Name::new("foo"),
+            source: Some(Name::new("bar")),
+        };
+        assert_eq!(Parser::for_str("()").parse_named_parameters(), Ok(vec![]));
+        assert_eq!(
+            Parser::for_str("(foo)").parse_named_parameters(),
+            Ok(vec![foo.clone()])
+        );
+        assert_eq!(
+            Parser::for_str("(foo<-bar)").parse_named_parameters(),
+            Ok(vec![foo_from_bar.clone()])
+        );
+        assert_eq!(
+            Parser::for_str("(foo,bar)").parse_named_parameters(),
+            Ok(vec![foo.clone(), bar.clone()])
+        );
+        assert_eq!(
+            Parser::for_str("(foo<-bar,bar)").parse_named_parameters(),
+            Ok(vec![foo_from_bar.clone(), bar.clone()])
+        );
+        assert_eq!(
+            Parser::for_str("( foo , bar ) ").parse_named_parameters(),
+            Ok(vec![foo.clone(), bar.clone()])
+        );
+        assert_eq!(
+            Parser::for_str("( foo <- bar , bar ) ").parse_named_parameters(),
+            Ok(vec![foo_from_bar.clone(), bar.clone()])
+        );
+        assert_eq!(
+            Parser::for_str("(foo bar)").parse_named_parameters(),
+            Err(ParseError::UnexpectedCharacter)
+        );
+        assert_eq!(
+            Parser::for_str("(foo,,bar)").parse_named_parameters(),
+            Err(ParseError::UnexpectedCharacter)
+        );
+        assert_eq!(
+            Parser::for_str("(,foo)").parse_named_parameters(),
+            Err(ParseError::UnexpectedCharacter)
+        );
+        assert_eq!(
+            Parser::for_str("(foo,)").parse_named_parameters(),
+            Err(ParseError::UnexpectedCharacter)
+        );
+        check_all_prefixes("(foo,bar)");
+        check_all_prefixes("(foo<-bar,baz)");
+        check_all_prefixes("(baz,foo<-bar)");
+        check_all_prefixes("( foo , bar )");
+        check_all_prefixes("( foo <- bar , baz )");
+        check_all_prefixes("( baz , foo <- bar )");
+    }
+}
+
+impl<I> Parser<I>
+where
+    I: Iterator<Item = char>,
+{
+    fn parse_closure_parameter(&mut self) -> Result<s1::ClosureParameter, ParseError> {
+        let param_name = self.parse_name()?;
+        self.skip_whitespace();
+        let close_over = self.parse_name_list()?;
+        self.skip_whitespace();
+        let mut branches = Vec::new();
+        branches.push(self.parse_closure_parameter_branch()?);
+        self.skip_whitespace();
+        while self.require_peek()? == ':' {
+            branches.push(self.parse_closure_parameter_branch()?);
+            self.skip_whitespace();
+        }
+        Ok(s1::ClosureParameter {
+            param_name,
+            close_over,
+            branches,
+        })
+    }
+
+    fn parse_closure_parameter_branch(&mut self) -> Result<s1::ClosureParameterBranch, ParseError> {
+        self.require_operator("::")?;
+        let branch_name = self.parse_name()?;
+        self.skip_whitespace();
+        self.require_operator("->")?;
+        self.skip_whitespace();
+        let receiving = self.parse_name_list()?;
+        self.skip_whitespace();
+        let statements = self.parse_s1_statement_list()?;
+        Ok(s1::ClosureParameterBranch {
+            branch_name,
+            receiving,
+            statements,
+        })
+    }
+}
+
+#[cfg(test)]
+mod parse_closure_parameter_tests {
+    use super::*;
+
+    fn check_all_prefixes(input: &str) {
+        for len in 0..input.len() {
+            assert_eq!(
+                Parser::for_str(&input[0..len]).parse_closure_parameter(),
+                Err(ParseError::UnexpectedEnd),
+            );
+        }
+    }
+
+    #[test]
+    fn can_parse() {
+        // The trailing "~" is just the start of any clause that can terminate the list of block
+        // parameters.
+        assert_eq!(
+            Parser::for_str("foo()::bar->(){}~").parse_closure_parameter(),
+            Ok(s1::ClosureParameter {
+                param_name: Name::new("foo"),
+                close_over: vec![],
+                branches: vec![s1::ClosureParameterBranch {
+                    branch_name: Name::new("bar"),
+                    receiving: vec![],
+                    statements: vec![],
+                }],
+            })
+        );
+        assert_eq!(
+            Parser::for_str("foo ( ) ::bar -> ( ) { } ~").parse_closure_parameter(),
+            Ok(s1::ClosureParameter {
+                param_name: Name::new("foo"),
+                close_over: vec![],
+                branches: vec![s1::ClosureParameterBranch {
+                    branch_name: Name::new("bar"),
+                    receiving: vec![],
+                    statements: vec![],
+                }],
+            })
+        );
+        check_all_prefixes("foo()::bar->(){}");
+        check_all_prefixes("foo ( ) ::bar -> ( ) { }");
+    }
+}
+
+fn is_result_or_continuation_char(ch: char) -> bool {
+    match ch {
+        '-' | '~' | '=' | ';' => true,
+        _ => false,
+    }
+}
+
+impl<I> Parser<I>
+where
+    I: Iterator<Item = char>,
+{
+    fn parse_closure_parameters(&mut self) -> Result<Vec<s1::ClosureParameter>, ParseError> {
+        let mut result = Vec::new();
+        while !is_result_or_continuation_char(self.require_peek()?) {
+            result.push(self.parse_closure_parameter()?);
+            self.skip_whitespace();
+        }
+        Ok(result)
+    }
+}
+
+#[cfg(test)]
+mod parse_closure_parameters_tests {
+    use super::*;
+
+    #[test]
+    fn can_parse() {
+        // The trailing "~" is just the start of any clause that can terminate the list of block
+        // parameters.
+        assert_eq!(
+            Parser::for_str("foo()::bar->(){}~").parse_closure_parameters(),
+            Ok(vec![s1::ClosureParameter {
+                param_name: Name::new("foo"),
+                close_over: vec![],
+                branches: vec![s1::ClosureParameterBranch {
+                    branch_name: Name::new("bar"),
+                    receiving: vec![],
+                    statements: vec![],
+                }],
+            }])
+        );
+        assert_eq!(
+            Parser::for_str("foo ( ) ::bar -> ( ) { } ~").parse_closure_parameters(),
+            Ok(vec![s1::ClosureParameter {
+                param_name: Name::new("foo"),
+                close_over: vec![],
+                branches: vec![s1::ClosureParameterBranch {
+                    branch_name: Name::new("bar"),
+                    receiving: vec![],
+                    statements: vec![],
+                }],
+            }])
+        );
+        assert_eq!(
+            Parser::for_str("foo()::bar->(){}foo()::bar->(){}~").parse_closure_parameters(),
+            Ok(vec![
+                s1::ClosureParameter {
+                    param_name: Name::new("foo"),
+                    close_over: vec![],
+                    branches: vec![s1::ClosureParameterBranch {
+                        branch_name: Name::new("bar"),
+                        receiving: vec![],
+                        statements: vec![],
+                    }],
+                },
+                s1::ClosureParameter {
+                    param_name: Name::new("foo"),
+                    close_over: vec![],
+                    branches: vec![s1::ClosureParameterBranch {
+                        branch_name: Name::new("bar"),
+                        receiving: vec![],
+                        statements: vec![],
+                    }],
+                },
+            ])
+        );
+        assert_eq!(
+            Parser::for_str("foo ( ) ::bar -> ( ) { } foo ( ) ::bar -> ( ) { } ~")
+                .parse_closure_parameters(),
+            Ok(vec![
+                s1::ClosureParameter {
+                    param_name: Name::new("foo"),
+                    close_over: vec![],
+                    branches: vec![s1::ClosureParameterBranch {
+                        branch_name: Name::new("bar"),
+                        receiving: vec![],
+                        statements: vec![],
+                    }],
+                },
+                s1::ClosureParameter {
+                    param_name: Name::new("foo"),
+                    close_over: vec![],
+                    branches: vec![s1::ClosureParameterBranch {
+                        branch_name: Name::new("bar"),
+                        receiving: vec![],
+                        statements: vec![],
+                    }],
+                },
+            ])
+        );
+    }
+}
+
+impl<I> Parser<I>
+where
+    I: Iterator<Item = char>,
+{
+    fn parse_call_results(&mut self) -> Result<Vec<Name>, ParseError> {
+        let mut result = Vec::new();
+        self.require_operator("->")?;
+        self.skip_whitespace();
+        self.require_operator("(")?;
+        self.skip_whitespace();
+        result.push(self.parse_name()?);
+        self.skip_whitespace();
+        while self.require_peek()? == ',' {
+            self.it.next();
+            self.skip_whitespace();
+            result.push(self.parse_name()?);
+            self.skip_whitespace();
+        }
+        self.require_operator(")")?;
+        Ok(result)
+    }
+}
+
+#[cfg(test)]
+mod parse_call_results_tests {
+    use super::*;
+
+    fn check_all_prefixes(input: &str) {
+        for len in 0..input.len() {
+            assert_eq!(
+                Parser::for_str(&input[0..len]).parse_call_results(),
+                Err(ParseError::UnexpectedEnd)
+            );
+        }
+    }
+
+    #[test]
+    fn can_parse() {
+        assert_eq!(
+            Parser::for_str("->(foo)").parse_call_results(),
+            Ok(vec![Name::new("foo")])
+        );
+        assert_eq!(
+            Parser::for_str("->(foo,bar)").parse_call_results(),
+            Ok(vec![Name::new("foo"), Name::new("bar")])
+        );
+        assert_eq!(
+            Parser::for_str("-> ( foo , bar ) ").parse_call_results(),
+            Ok(vec![Name::new("foo"), Name::new("bar")])
+        );
+        // The result list can't be empty; if there are no results, just leave it out.
+        assert_eq!(
+            Parser::for_str("->()").parse_call_results(),
+            Err(ParseError::UnexpectedCharacter)
+        );
+        assert_eq!(
+            Parser::for_str("-> ( )").parse_call_results(),
+            Err(ParseError::UnexpectedCharacter)
+        );
+        assert_eq!(
+            Parser::for_str("-> (foo bar)").parse_call_results(),
+            Err(ParseError::UnexpectedCharacter)
+        );
+        assert_eq!(
+            Parser::for_str("-> (foo,,bar)").parse_call_results(),
+            Err(ParseError::UnexpectedCharacter)
+        );
+        assert_eq!(
+            Parser::for_str("-> (,foo)").parse_call_results(),
+            Err(ParseError::UnexpectedCharacter)
+        );
+        assert_eq!(
+            Parser::for_str("-> (foo,)").parse_call_results(),
+            Err(ParseError::UnexpectedCharacter)
+        );
+        check_all_prefixes("->(foo,bar)");
+        check_all_prefixes("-> ( foo , bar )");
+    }
+}
+
+impl<I> Parser<I>
+where
+    I: Iterator<Item = char>,
+{
+    fn parse_call_continuation(&mut self) -> Result<s1::Continuation, ParseError> {
+        match self.require_peek()? {
+            ';' => {
+                self.it.next();
+                Ok(s1::Continuation::UseDefault)
+            }
+            '~' => self.parse_inside_parameter_continuation(),
+            '=' => self.parse_as_parameter_continuation(),
+            _ => Err(ParseError::UnexpectedCharacter),
+        }
+    }
+
+    fn parse_inside_parameter_continuation(&mut self) -> Result<s1::Continuation, ParseError> {
+        self.require_operator("~>")?;
+        self.skip_whitespace();
+        let param_name = self.parse_name()?;
+        self.skip_whitespace();
+        let mut name = None;
+        let mut branch_name = None;
+        if self.require_peek()? == '(' {
+            self.it.next();
+            self.skip_whitespace();
+            name = Some(self.parse_name()?);
+            if self.require_peek()? == ':' {
+                self.require_operator("::")?;
+                branch_name = Some(self.parse_name()?);
+            }
+            self.skip_whitespace();
+            self.require_operator(")")?;
+            self.skip_whitespace();
+        }
+        self.require_operator(";")?;
+        Ok(s1::Continuation::InsideParameter {
+            param_name,
+            name,
+            branch_name,
+        })
+    }
+
+    fn parse_as_parameter_continuation(&mut self) -> Result<s1::Continuation, ParseError> {
+        self.require_operator("=>")?;
+        self.skip_whitespace();
+        let param_name = self.parse_name()?;
+        self.require_operator("::")?;
+        let branch_name = self.parse_name()?;
+        self.skip_whitespace();
+        self.require_operator(";")?;
+        Ok(s1::Continuation::AsParameter {
+            param_name,
+            branch_name,
+        })
+    }
+}
+
+#[cfg(test)]
+mod parse_call_continuation_tests {
+    use super::*;
+
+    fn check_all_prefixes(input: &str) {
+        for len in 0..input.len() {
+            assert_eq!(
+                Parser::for_str(&input[0..len]).parse_call_continuation(),
+                Err(ParseError::UnexpectedEnd)
+            );
+        }
+    }
+
+    #[test]
+    fn can_parse_default() {
+        assert_eq!(
+            Parser::for_str(";").parse_call_continuation(),
+            Ok(s1::Continuation::UseDefault),
+        );
+        check_all_prefixes(";");
+    }
+
+    #[test]
+    fn can_parse_inside_parameter() {
+        assert_eq!(
+            Parser::for_str("~>foo;").parse_call_continuation(),
+            Ok(s1::Continuation::InsideParameter {
+                param_name: Name::new("foo"),
+                name: None,
+                branch_name: None,
+            }),
+        );
+        assert_eq!(
+            Parser::for_str("~> foo ;").parse_call_continuation(),
+            Ok(s1::Continuation::InsideParameter {
+                param_name: Name::new("foo"),
+                name: None,
+                branch_name: None,
+            }),
+        );
+        assert_eq!(
+            Parser::for_str("~>foo(bar);").parse_call_continuation(),
+            Ok(s1::Continuation::InsideParameter {
+                param_name: Name::new("foo"),
+                name: Some(Name::new("bar")),
+                branch_name: None,
+            }),
+        );
+        assert_eq!(
+            Parser::for_str("~> foo ( bar ) ;").parse_call_continuation(),
+            Ok(s1::Continuation::InsideParameter {
+                param_name: Name::new("foo"),
+                name: Some(Name::new("bar")),
+                branch_name: None,
+            }),
+        );
+        assert_eq!(
+            Parser::for_str("~>foo(bar::baz);").parse_call_continuation(),
+            Ok(s1::Continuation::InsideParameter {
+                param_name: Name::new("foo"),
+                name: Some(Name::new("bar")),
+                branch_name: Some(Name::new("baz")),
+            }),
+        );
+        assert_eq!(
+            Parser::for_str("~> foo ( bar::baz ) ;").parse_call_continuation(),
+            Ok(s1::Continuation::InsideParameter {
+                param_name: Name::new("foo"),
+                name: Some(Name::new("bar")),
+                branch_name: Some(Name::new("baz")),
+            }),
+        );
+        check_all_prefixes("~>foo;");
+        check_all_prefixes("~>foo(bar);");
+        check_all_prefixes("~>foo(bar::baz);");
+        check_all_prefixes("~> foo ;");
+        check_all_prefixes("~> foo ( bar ) ;");
+        check_all_prefixes("~> foo ( bar::baz ) ;");
+    }
+
+    #[test]
+    fn can_parse_as_parameter() {
+        assert_eq!(
+            Parser::for_str("=>foo::bar;").parse_call_continuation(),
+            Ok(s1::Continuation::AsParameter {
+                param_name: Name::new("foo"),
+                branch_name: Name::new("bar"),
+            }),
+        );
+        assert_eq!(
+            Parser::for_str("=> foo::bar ;").parse_call_continuation(),
+            Ok(s1::Continuation::AsParameter {
+                param_name: Name::new("foo"),
+                branch_name: Name::new("bar"),
+            }),
+        );
+        check_all_prefixes("=>foo::bar;");
+        check_all_prefixes("=> foo::bar ;");
+    }
+}
+
+impl<I> Parser<I>
+where
+    I: Iterator<Item = char>,
+{
+    fn parse_s1_call(&mut self, target: Name) -> Result<s1::Statement, ParseError> {
+        self.require_operator("::")?;
+        let branch = self.parse_name()?;
+        self.skip_whitespace();
+        let named_parameters = self.parse_named_parameters()?;
+        self.skip_whitespace();
+        let closure_parameters = self.parse_closure_parameters()?;
+        self.skip_whitespace();
+        let results = if self.require_peek()? == '-' {
+            self.parse_call_results()?
+        } else {
+            Vec::new()
+        };
+        self.skip_whitespace();
+        let continuation = self.parse_call_continuation()?;
+        Ok(s1::Statement::Call(s1::Call {
+            target,
+            branch,
+            named_parameters,
+            closure_parameters,
+            results,
+            continuation,
+        }))
+    }
+}
+
+impl<I> Parser<I>
+where
+    I: Iterator<Item = char>,
+{
+    fn parse_s1_statement(&mut self) -> Result<s1::Statement, ParseError> {
+        let dest = self.parse_name()?;
+        if self.require_peek()? == ':' {
+            self.parse_s1_call(dest)
+        } else {
+            self.skip_whitespace();
+            self.require_operator("=")?;
+            self.skip_whitespace();
+            Ok(self.parse_s0_statement_inner(dest)?.into())
+        }
+    }
+}
+
+#[cfg(test)]
+mod parse_s1_statement_tests {
+    use super::*;
+
+    fn check_all_prefixes(input: &str) {
+        for len in 0..input.len() {
+            assert_eq!(
+                Parser::for_str(&input[0..len]).parse_s1_statement(),
+                Err(ParseError::UnexpectedEnd)
+            );
+        }
+    }
+
+    #[test]
+    fn can_parse_create_atom() {
+        assert_eq!(
+            Parser::for_str("foo=atom;").parse_s1_statement(),
+            Ok(s0::Statement::create_atom(Name::new("foo")).into())
+        );
+    }
+
+    #[test]
+    fn can_parse_create_closure() {
+        assert_eq!(
+            Parser::for_str(concat!(
+                "foo = closure containing (foo, bar) ",
+                "branch true = @true, ",
+                "branch false = @false;",
+            ))
+            .parse_s1_statement(),
+            Ok(s0::Statement::create_closure(
+                Name::new("foo"),
+                vec![Name::new("foo"), Name::new("bar")],
+                vec![
+                    s0::BranchRef::new(Name::new("true"), Name::new("@true")),
+                    s0::BranchRef::new(Name::new("false"), Name::new("@false")),
+                ]
+            )
+            .into())
+        );
+    }
+
+    #[test]
+    fn can_parse_create_literal() {
+        assert_eq!(
+            Parser::for_str("foo = literal bar;").parse_s1_statement(),
+            Ok(s0::Statement::create_literal(Name::new("foo"), "bar".as_bytes().to_vec()).into())
+        );
+    }
+
+    #[test]
+    fn can_parse_rename() {
+        assert_eq!(
+            Parser::for_str("foo = rename bar;").parse_s1_statement(),
+            Ok(s0::Statement::rename(Name::new("foo"), Name::new("bar")).into())
+        );
+    }
+
+    #[test]
+    fn can_parse_call() {
+        assert_eq!(
+            Parser::for_str("foo::bar();").parse_s1_statement(),
+            Ok(s1::Statement::Call(s1::Call {
+                target: Name::new("foo"),
+                branch: Name::new("bar"),
+                named_parameters: vec![],
+                closure_parameters: vec![],
+                results: vec![],
+                continuation: s1::Continuation::UseDefault,
+            }))
+        );
+        assert_eq!(
+            Parser::for_str("foo::bar ( ) ;").parse_s1_statement(),
+            Ok(s1::Statement::Call(s1::Call {
+                target: Name::new("foo"),
+                branch: Name::new("bar"),
+                named_parameters: vec![],
+                closure_parameters: vec![],
+                results: vec![],
+                continuation: s1::Continuation::UseDefault,
+            }))
+        );
+
+        assert_eq!(
+            Parser::for_str("foo::bar(param1,param2<-var);").parse_s1_statement(),
+            Ok(s1::Statement::Call(s1::Call {
+                target: Name::new("foo"),
+                branch: Name::new("bar"),
+                named_parameters: vec![
+                    s1::NamedParameter {
+                        param_name: Name::new("param1"),
+                        source: None
+                    },
+                    s1::NamedParameter {
+                        param_name: Name::new("param2"),
+                        source: Some(Name::new("var")),
+                    },
+                ],
+                closure_parameters: vec![],
+                results: vec![],
+                continuation: s1::Continuation::UseDefault,
+            }))
+        );
+        assert_eq!(
+            Parser::for_str("foo::bar ( param1 , param2 <- var ) ;").parse_s1_statement(),
+            Ok(s1::Statement::Call(s1::Call {
+                target: Name::new("foo"),
+                branch: Name::new("bar"),
+                named_parameters: vec![
+                    s1::NamedParameter {
+                        param_name: Name::new("param1"),
+                        source: None
+                    },
+                    s1::NamedParameter {
+                        param_name: Name::new("param2"),
+                        source: Some(Name::new("var")),
+                    },
+                ],
+                closure_parameters: vec![],
+                results: vec![],
+                continuation: s1::Continuation::UseDefault,
+            }))
+        );
+
+        assert_eq!(
+            Parser::for_str("foo::bar(param1,param2<-var)block(close1)::branch->(){};")
+                .parse_s1_statement(),
+            Ok(s1::Statement::Call(s1::Call {
+                target: Name::new("foo"),
+                branch: Name::new("bar"),
+                named_parameters: vec![
+                    s1::NamedParameter {
+                        param_name: Name::new("param1"),
+                        source: None
+                    },
+                    s1::NamedParameter {
+                        param_name: Name::new("param2"),
+                        source: Some(Name::new("var")),
+                    },
+                ],
+                closure_parameters: vec![s1::ClosureParameter {
+                    param_name: Name::new("block"),
+                    close_over: vec![Name::new("close1")],
+                    branches: vec![s1::ClosureParameterBranch {
+                        branch_name: Name::new("branch"),
+                        receiving: vec![],
+                        statements: vec![],
+                    }],
+                }],
+                results: vec![],
+                continuation: s1::Continuation::UseDefault,
+            }))
+        );
+        assert_eq!(
+            Parser::for_str(concat!(
+                "foo::bar ( param1 , param2 <- var ) ",
+                "block ( close1 ) ::branch -> ( ) { } ;",
+            ))
+            .parse_s1_statement(),
+            Ok(s1::Statement::Call(s1::Call {
+                target: Name::new("foo"),
+                branch: Name::new("bar"),
+                named_parameters: vec![
+                    s1::NamedParameter {
+                        param_name: Name::new("param1"),
+                        source: None
+                    },
+                    s1::NamedParameter {
+                        param_name: Name::new("param2"),
+                        source: Some(Name::new("var")),
+                    },
+                ],
+                closure_parameters: vec![s1::ClosureParameter {
+                    param_name: Name::new("block"),
+                    close_over: vec![Name::new("close1")],
+                    branches: vec![s1::ClosureParameterBranch {
+                        branch_name: Name::new("branch"),
+                        receiving: vec![],
+                        statements: vec![],
+                    }],
+                }],
+                results: vec![],
+                continuation: s1::Continuation::UseDefault,
+            }))
+        );
+
+        assert_eq!(
+            Parser::for_str(concat!(
+                "foo::bar(param1,param2<-var)block(close1)::branch->(){}",
+                "->(result1,result2);",
+            ),)
+            .parse_s1_statement(),
+            Ok(s1::Statement::Call(s1::Call {
+                target: Name::new("foo"),
+                branch: Name::new("bar"),
+                named_parameters: vec![
+                    s1::NamedParameter {
+                        param_name: Name::new("param1"),
+                        source: None
+                    },
+                    s1::NamedParameter {
+                        param_name: Name::new("param2"),
+                        source: Some(Name::new("var")),
+                    },
+                ],
+                closure_parameters: vec![s1::ClosureParameter {
+                    param_name: Name::new("block"),
+                    close_over: vec![Name::new("close1")],
+                    branches: vec![s1::ClosureParameterBranch {
+                        branch_name: Name::new("branch"),
+                        receiving: vec![],
+                        statements: vec![],
+                    }],
+                }],
+                results: vec![Name::new("result1"), Name::new("result2")],
+                continuation: s1::Continuation::UseDefault,
+            }))
+        );
+        assert_eq!(
+            Parser::for_str(concat!(
+                "foo::bar ( param1 , param2 <- var ) block ( close1 ) ::branch -> ( ) { } ",
+                "-> ( result1 , result2 ) ;",
+            ))
+            .parse_s1_statement(),
+            Ok(s1::Statement::Call(s1::Call {
+                target: Name::new("foo"),
+                branch: Name::new("bar"),
+                named_parameters: vec![
+                    s1::NamedParameter {
+                        param_name: Name::new("param1"),
+                        source: None
+                    },
+                    s1::NamedParameter {
+                        param_name: Name::new("param2"),
+                        source: Some(Name::new("var")),
+                    },
+                ],
+                closure_parameters: vec![s1::ClosureParameter {
+                    param_name: Name::new("block"),
+                    close_over: vec![Name::new("close1")],
+                    branches: vec![s1::ClosureParameterBranch {
+                        branch_name: Name::new("branch"),
+                        receiving: vec![],
+                        statements: vec![],
+                    }],
+                }],
+                results: vec![Name::new("result1"), Name::new("result2")],
+                continuation: s1::Continuation::UseDefault,
+            }))
+        );
+
+        assert_eq!(
+            Parser::for_str(concat!(
+                "foo::bar(param1,param2<-var)block(close1)::branch->(){}",
+                "->(result1,result2)~>foo;",
+            ))
+            .parse_s1_statement(),
+            Ok(s1::Statement::Call(s1::Call {
+                target: Name::new("foo"),
+                branch: Name::new("bar"),
+                named_parameters: vec![
+                    s1::NamedParameter {
+                        param_name: Name::new("param1"),
+                        source: None
+                    },
+                    s1::NamedParameter {
+                        param_name: Name::new("param2"),
+                        source: Some(Name::new("var")),
+                    },
+                ],
+                closure_parameters: vec![s1::ClosureParameter {
+                    param_name: Name::new("block"),
+                    close_over: vec![Name::new("close1")],
+                    branches: vec![s1::ClosureParameterBranch {
+                        branch_name: Name::new("branch"),
+                        receiving: vec![],
+                        statements: vec![],
+                    }],
+                }],
+                results: vec![Name::new("result1"), Name::new("result2")],
+                continuation: s1::Continuation::InsideParameter {
+                    param_name: Name::new("foo"),
+                    name: None,
+                    branch_name: None,
+                },
+            }))
+        );
+        assert_eq!(
+            Parser::for_str(concat!(
+                "foo::bar ( param1 , param2 <- var ) block ( close1 ) ::branch -> ( ) { } ",
+                "-> ( result1 , result2 ) ~> foo ;",
+            ))
+            .parse_s1_statement(),
+            Ok(s1::Statement::Call(s1::Call {
+                target: Name::new("foo"),
+                branch: Name::new("bar"),
+                named_parameters: vec![
+                    s1::NamedParameter {
+                        param_name: Name::new("param1"),
+                        source: None
+                    },
+                    s1::NamedParameter {
+                        param_name: Name::new("param2"),
+                        source: Some(Name::new("var")),
+                    },
+                ],
+                closure_parameters: vec![s1::ClosureParameter {
+                    param_name: Name::new("block"),
+                    close_over: vec![Name::new("close1")],
+                    branches: vec![s1::ClosureParameterBranch {
+                        branch_name: Name::new("branch"),
+                        receiving: vec![],
+                        statements: vec![],
+                    }],
+                }],
+                results: vec![Name::new("result1"), Name::new("result2")],
+                continuation: s1::Continuation::InsideParameter {
+                    param_name: Name::new("foo"),
+                    name: None,
+                    branch_name: None,
+                },
+            }))
+        );
+
+        assert_eq!(
+            Parser::for_str(concat!(
+                "foo::bar(param1,param2<-var)block(close1)::branch->(){}",
+                "->(result1,result2)~>foo(bar::baz);",
+            ))
+            .parse_s1_statement(),
+            Ok(s1::Statement::Call(s1::Call {
+                target: Name::new("foo"),
+                branch: Name::new("bar"),
+                named_parameters: vec![
+                    s1::NamedParameter {
+                        param_name: Name::new("param1"),
+                        source: None
+                    },
+                    s1::NamedParameter {
+                        param_name: Name::new("param2"),
+                        source: Some(Name::new("var")),
+                    },
+                ],
+                closure_parameters: vec![s1::ClosureParameter {
+                    param_name: Name::new("block"),
+                    close_over: vec![Name::new("close1")],
+                    branches: vec![s1::ClosureParameterBranch {
+                        branch_name: Name::new("branch"),
+                        receiving: vec![],
+                        statements: vec![],
+                    }],
+                }],
+                results: vec![Name::new("result1"), Name::new("result2")],
+                continuation: s1::Continuation::InsideParameter {
+                    param_name: Name::new("foo"),
+                    name: Some(Name::new("bar")),
+                    branch_name: Some(Name::new("baz")),
+                },
+            }))
+        );
+        assert_eq!(
+            Parser::for_str(concat!(
+                "foo::bar ( param1 , param2 <- var ) block ( close1 ) ::branch -> ( ) { } ",
+                "-> ( result1 , result2 ) ~> foo ( bar::baz ) ;",
+            ))
+            .parse_s1_statement(),
+            Ok(s1::Statement::Call(s1::Call {
+                target: Name::new("foo"),
+                branch: Name::new("bar"),
+                named_parameters: vec![
+                    s1::NamedParameter {
+                        param_name: Name::new("param1"),
+                        source: None
+                    },
+                    s1::NamedParameter {
+                        param_name: Name::new("param2"),
+                        source: Some(Name::new("var")),
+                    },
+                ],
+                closure_parameters: vec![s1::ClosureParameter {
+                    param_name: Name::new("block"),
+                    close_over: vec![Name::new("close1")],
+                    branches: vec![s1::ClosureParameterBranch {
+                        branch_name: Name::new("branch"),
+                        receiving: vec![],
+                        statements: vec![],
+                    }],
+                }],
+                results: vec![Name::new("result1"), Name::new("result2")],
+                continuation: s1::Continuation::InsideParameter {
+                    param_name: Name::new("foo"),
+                    name: Some(Name::new("bar")),
+                    branch_name: Some(Name::new("baz")),
+                },
+            }))
+        );
+
+        assert_eq!(
+            Parser::for_str(concat!(
+                "foo::bar(param1,param2<-var)block(close1)::branch->(){}",
+                "->(result1,result2)=>foo::bar;",
+            ))
+            .parse_s1_statement(),
+            Ok(s1::Statement::Call(s1::Call {
+                target: Name::new("foo"),
+                branch: Name::new("bar"),
+                named_parameters: vec![
+                    s1::NamedParameter {
+                        param_name: Name::new("param1"),
+                        source: None
+                    },
+                    s1::NamedParameter {
+                        param_name: Name::new("param2"),
+                        source: Some(Name::new("var")),
+                    },
+                ],
+                closure_parameters: vec![s1::ClosureParameter {
+                    param_name: Name::new("block"),
+                    close_over: vec![Name::new("close1")],
+                    branches: vec![s1::ClosureParameterBranch {
+                        branch_name: Name::new("branch"),
+                        receiving: vec![],
+                        statements: vec![],
+                    }],
+                }],
+                results: vec![Name::new("result1"), Name::new("result2")],
+                continuation: s1::Continuation::AsParameter {
+                    param_name: Name::new("foo"),
+                    branch_name: Name::new("bar"),
+                },
+            }))
+        );
+        assert_eq!(
+            Parser::for_str(concat!(
+                "foo::bar ( param1 , param2 <- var ) block ( close1 ) ::branch -> ( ) { } ",
+                "-> ( result1 , result2 ) => foo::bar ;",
+            ))
+            .parse_s1_statement(),
+            Ok(s1::Statement::Call(s1::Call {
+                target: Name::new("foo"),
+                branch: Name::new("bar"),
+                named_parameters: vec![
+                    s1::NamedParameter {
+                        param_name: Name::new("param1"),
+                        source: None
+                    },
+                    s1::NamedParameter {
+                        param_name: Name::new("param2"),
+                        source: Some(Name::new("var")),
+                    },
+                ],
+                closure_parameters: vec![s1::ClosureParameter {
+                    param_name: Name::new("block"),
+                    close_over: vec![Name::new("close1")],
+                    branches: vec![s1::ClosureParameterBranch {
+                        branch_name: Name::new("branch"),
+                        receiving: vec![],
+                        statements: vec![],
+                    }],
+                }],
+                results: vec![Name::new("result1"), Name::new("result2")],
+                continuation: s1::Continuation::AsParameter {
+                    param_name: Name::new("foo"),
+                    branch_name: Name::new("bar"),
+                },
+            }))
+        );
+
+        check_all_prefixes("foo::bar();");
+        check_all_prefixes("foo::bar(param1,param2<-var);");
+        check_all_prefixes("foo::bar(param1,param2<-var)block(close1)::branch->(){};");
+        check_all_prefixes(concat!(
+            "foo::bar(param1,param2<-var)block(close1)::branch->(){}",
+            "->(result1,result2);",
+        ));
+        check_all_prefixes(concat!(
+            "foo::bar(param1,param2<-var)block(close1)::branch->(){}",
+            "->(result1,result2)~>foo;",
+        ));
+        check_all_prefixes(concat!(
+            "foo::bar(param1,param2<-var)block(close1)::branch->(){}",
+            "->(result1,result2)~>foo(bar::baz);",
+        ));
+        check_all_prefixes(concat!(
+            "foo::bar(param1,param2<-var)block(close1)::branch->(){}",
+            "->(result1,result2)=>foo::bar;",
+        ));
+
+        check_all_prefixes("foo::bar ( ) ;");
+        check_all_prefixes("foo::bar ( param1 , param2 <- var ) ;");
+        check_all_prefixes(concat!(
+            "foo::bar ( param1 , param2 <- var ) ",
+            "block ( close1 ) ::branch -> ( ) { } ;",
+        ));
+        check_all_prefixes(concat!(
+            "foo::bar ( param1 , param2 <- var ) block ( close1 ) ::branch -> ( ) { } ",
+            "-> ( result1, result2 ) ;",
+        ));
+        check_all_prefixes(concat!(
+            "foo::bar ( param1 , param2 <- var ) block ( close1 ) ::branch -> ( ) { } ",
+            "-> ( result1, result2 ) ~> foo ;",
+        ));
+        check_all_prefixes(concat!(
+            "foo::bar ( param1 , param2 <- var ) block ( close1 ) ::branch -> ( ) { } ",
+            "-> ( result1, result2 ) ~> foo ( bar::baz ) ;",
+        ));
+        check_all_prefixes(concat!(
+            "foo::bar ( param1 , param2 <- var ) block ( close1 ) ::branch -> ( ) { } ",
+            "-> ( result1, result2 ) => foo::bar ;",
+        ));
+    }
+}
+
+impl<I> Parser<I>
+where
+    I: Iterator<Item = char>,
+{
+    fn parse_s1_statement_list(&mut self) -> Result<Vec<s1::Statement>, ParseError> {
+        let mut result = Vec::new();
+        self.require_operator("{")?;
+        self.skip_whitespace();
+        while self.require_peek()? != '}' {
+            result.push(self.parse_s1_statement()?);
+            self.skip_whitespace();
+        }
+        self.it.next();
+        Ok(result)
+    }
+}
+
+#[cfg(test)]
+mod parse_s1_statement_list_tests {
+    use super::*;
+
+    #[test]
+    fn can_parse_s1_statement_list() {
+        assert_eq!(
+            Parser::for_str(concat!(
+                "{",
+                "  @lit = literal foo; ",
+                "  @atom = atom; ",
+                "}",
+            ))
+            .parse_s1_statement_list(),
+            Ok(vec![
+                s0::Statement::create_literal(Name::new("@lit"), "foo".as_bytes().to_vec()).into(),
+                s0::Statement::create_atom(Name::new("@atom")).into(),
+            ])
+        );
+    }
+}
+
+impl<I> Parser<I>
+where
+    I: Iterator<Item = char>,
+{
+    /// ``` s0
+    /// [name]:
+    /// containing ([names],...)
+    /// receiving ([name],...)
+    /// {
+    ///   [statements]
+    ///   [invocation]
+    /// }
+    /// ```
+    fn parse_s1_block(&mut self) -> Result<s1::Block, ParseError> {
+        let name = self.parse_name()?;
+        self.skip_whitespace();
+        self.require_operator(":")?;
+        self.skip_whitespace();
+        self.require_keyword("containing")?;
+        self.skip_whitespace();
+        let containing = self.parse_name_list()?;
+        self.skip_whitespace();
+        self.require_keyword("receiving")?;
+        self.skip_whitespace();
+        let receiving = self.parse_name_list()?;
+        self.skip_whitespace();
+        let statements = self.parse_s1_statement_list()?;
+        Ok(s1::Block {
+            name,
+            containing,
+            receiving,
+            statements,
+        })
+    }
+}
+
+#[cfg(test)]
+mod parse_s1_block_tests {
+    use super::*;
+
+    fn check_all_prefixes(input: &str) {
+        for len in 0..input.len() {
+            assert_eq!(
+                Parser::for_str(&input[0..len]).parse_s1_block(),
+                Err(ParseError::UnexpectedEnd)
+            );
+        }
+    }
+
+    #[test]
+    fn can_parse() {
+        assert_eq!(
+            Parser::for_str(concat!(
+                "block_name: ",
+                "containing (closed_over) ",
+                "receiving (input) ",
+                "{",
+                "  @lit = literal foo; ",
+                "  @atom = atom; ",
+                "  foo::bar(param1, param2 <- var) block (close1) ::branch ->() {};",
+                "}",
+            ))
+            .parse_s1_block(),
+            Ok(s1::Block {
+                name: Name::new("block_name"),
+                containing: vec![Name::new("closed_over")],
+                receiving: vec![Name::new("input")],
+                statements: vec![
+                    s0::Statement::create_literal(Name::new("@lit"), "foo".as_bytes().to_vec())
+                        .into(),
+                    s0::Statement::create_atom(Name::new("@atom")).into(),
+                    s1::Statement::Call(s1::Call {
+                        target: Name::new("foo"),
+                        branch: Name::new("bar"),
+                        named_parameters: vec![
+                            s1::NamedParameter {
+                                param_name: Name::new("param1"),
+                                source: None
+                            },
+                            s1::NamedParameter {
+                                param_name: Name::new("param2"),
+                                source: Some(Name::new("var")),
+                            },
+                        ],
+                        closure_parameters: vec![s1::ClosureParameter {
+                            param_name: Name::new("block"),
+                            close_over: vec![Name::new("close1")],
+                            branches: vec![s1::ClosureParameterBranch {
+                                branch_name: Name::new("branch"),
+                                receiving: vec![],
+                                statements: vec![],
+                            }],
+                        }],
+                        results: vec![],
+                        continuation: s1::Continuation::UseDefault,
+                    }),
+                ],
+            })
+        );
+        assert_eq!(
+            Parser::for_str(concat!(
+                "block_name:",
+                "containing(closed_over)",
+                "receiving(input)",
+                "{",
+                "@lit=literal foo;",
+                "@atom=atom;",
+                "foo::bar(param1,param2<-var)block(close1)::branch->(){};",
+                "}",
+            ))
+            .parse_s1_block(),
+            Ok(s1::Block {
+                name: Name::new("block_name"),
+                containing: vec![Name::new("closed_over")],
+                receiving: vec![Name::new("input")],
+                statements: vec![
+                    s0::Statement::create_literal(Name::new("@lit"), "foo".as_bytes().to_vec())
+                        .into(),
+                    s0::Statement::create_atom(Name::new("@atom")).into(),
+                    s1::Statement::Call(s1::Call {
+                        target: Name::new("foo"),
+                        branch: Name::new("bar"),
+                        named_parameters: vec![
+                            s1::NamedParameter {
+                                param_name: Name::new("param1"),
+                                source: None
+                            },
+                            s1::NamedParameter {
+                                param_name: Name::new("param2"),
+                                source: Some(Name::new("var")),
+                            },
+                        ],
+                        closure_parameters: vec![s1::ClosureParameter {
+                            param_name: Name::new("block"),
+                            close_over: vec![Name::new("close1")],
+                            branches: vec![s1::ClosureParameterBranch {
+                                branch_name: Name::new("branch"),
+                                receiving: vec![],
+                                statements: vec![],
+                            }],
+                        }],
+                        results: vec![],
+                        continuation: s1::Continuation::UseDefault,
+                    }),
+                ],
+            })
+        );
+        check_all_prefixes(concat!(
+            "block_name: ",
+            "containing (closed_over) ",
+            "receiving (input) ",
+            "{",
+            "  @lit = literal foo; ",
+            "  @atom = atom; ",
+            "  foo::bar(param1, param2 <- var) block (close1) ::branch ->() {};",
+            "}",
+        ));
+    }
+}
+
+impl<I> Parser<I>
+where
+    I: Iterator<Item = char>,
+{
+    pub(crate) fn parse_s1_module(&mut self) -> Result<s1::ParsedModule, ParseError> {
+        self.skip_whitespace();
+        self.require_keyword("module")?;
+        self.skip_whitespace();
+        let name = self.parse_name()?;
+        self.skip_whitespace();
+        self.require_operator("{")?;
+        let mut blocks = Vec::new();
+        loop {
+            self.skip_whitespace();
+            if self.require_peek()? == '}' {
+                self.it.next();
+                return Ok(s1::ParsedModule::new(name, blocks));
+            }
+            let block = self.parse_s1_block()?;
+            blocks.push(block);
+        }
+    }
+}
+
+#[cfg(test)]
+mod parse_s1_module_tests {
+    use super::*;
+
+    fn check_all_prefixes(input: &str) {
+        for len in 0..input.len() {
+            assert_eq!(
+                Parser::for_str(&input[0..len]).parse_s1_module(),
+                Err(ParseError::UnexpectedEnd)
+            );
+        }
+    }
+
+    #[test]
+    fn can_parse() {
+        assert_eq!(
+            Parser::for_str(concat!(
+                "module @mod {",
+                "  @block: ",
+                "    containing (closed_over) ",
+                "    receiving (input) ",
+                "    {",
+                "      @lit = literal foo; ",
+                "      @atom = atom; ",
+                "      foo::bar(param1, param2 <- var) block (close1) ::branch ->() {};",
+                "    }",
+                "}",
+            ))
+            .parse_s1_module(),
+            Ok(s1::ParsedModule::new(
+                Name::new("@mod"),
+                vec![s1::Block {
+                    name: Name::new("@block"),
+                    containing: vec![Name::new("closed_over")],
+                    receiving: vec![Name::new("input")],
+                    statements: vec![
+                        s0::Statement::create_literal(Name::new("@lit"), "foo".as_bytes().to_vec())
+                            .into(),
+                        s0::Statement::create_atom(Name::new("@atom")).into(),
+                        s1::Statement::Call(s1::Call {
+                            target: Name::new("foo"),
+                            branch: Name::new("bar"),
+                            named_parameters: vec![
+                                s1::NamedParameter {
+                                    param_name: Name::new("param1"),
+                                    source: None
+                                },
+                                s1::NamedParameter {
+                                    param_name: Name::new("param2"),
+                                    source: Some(Name::new("var")),
+                                },
+                            ],
+                            closure_parameters: vec![s1::ClosureParameter {
+                                param_name: Name::new("block"),
+                                close_over: vec![Name::new("close1")],
+                                branches: vec![s1::ClosureParameterBranch {
+                                    branch_name: Name::new("branch"),
+                                    receiving: vec![],
+                                    statements: vec![],
+                                }],
+                            }],
+                            results: vec![],
+                            continuation: s1::Continuation::UseDefault,
+                        }),
+                    ],
+                }]
+            ))
+        );
+        assert_eq!(
+            Parser::for_str(concat!(
+                "module @mod{",
+                "@block:",
+                "containing(closed_over)",
+                "receiving(input)",
+                "{",
+                "@lit=literal foo;",
+                "@atom=atom;",
+                "foo::bar(param1,param2<-var)block(close1)::branch->(){};",
+                "}",
+                "}",
+            ))
+            .parse_s1_module(),
+            Ok(s1::ParsedModule::new(
+                Name::new("@mod"),
+                vec![s1::Block {
+                    name: Name::new("@block"),
+                    containing: vec![Name::new("closed_over")],
+                    receiving: vec![Name::new("input")],
+                    statements: vec![
+                        s0::Statement::create_literal(Name::new("@lit"), "foo".as_bytes().to_vec())
+                            .into(),
+                        s0::Statement::create_atom(Name::new("@atom")).into(),
+                        s1::Statement::Call(s1::Call {
+                            target: Name::new("foo"),
+                            branch: Name::new("bar"),
+                            named_parameters: vec![
+                                s1::NamedParameter {
+                                    param_name: Name::new("param1"),
+                                    source: None
+                                },
+                                s1::NamedParameter {
+                                    param_name: Name::new("param2"),
+                                    source: Some(Name::new("var")),
+                                },
+                            ],
+                            closure_parameters: vec![s1::ClosureParameter {
+                                param_name: Name::new("block"),
+                                close_over: vec![Name::new("close1")],
+                                branches: vec![s1::ClosureParameterBranch {
+                                    branch_name: Name::new("branch"),
+                                    receiving: vec![],
+                                    statements: vec![],
+                                }],
+                            }],
+                            results: vec![],
+                            continuation: s1::Continuation::UseDefault,
+                        }),
+                    ],
+                }]
+            ))
+        );
+        check_all_prefixes(concat!(
+            "module @mod {",
+            "  @block: ",
+            "    containing (closed_over) ",
+            "    receiving (input) ",
+            "    {",
+            "      @lit = literal foo; ",
+            "      @atom = atom; ",
+            "      foo::bar(param1, param2 <- var) block (close1) ::branch ->() {};",
             "    }",
             "}",
         ));
