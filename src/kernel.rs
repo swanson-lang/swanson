@@ -238,7 +238,6 @@ mod string_tests {
                     Finish::succeed(result <- $0);
                 }
             }");
-
         let mut env = Environment::new();
         env.add("String", StringNamespace::as_value())?;
         let result = module.execute_and_get_result(&mut env)?.into_string()?;
@@ -259,7 +258,6 @@ mod string_tests {
                     Finish::succeed(result <- $0);
                 }
             }");
-
         let mut env = Environment::new();
         env.add("String", StringNamespace::as_value())?;
         let result = module.execute_and_get_result(&mut env)?.into_string()?;
@@ -435,7 +433,6 @@ mod boolean_tests {
                     Finish::succeed(result <- $0);
                 }
             }");
-
         let mut env = Environment::new();
         env.add("Boolean", BooleanNamespace::as_value())?;
         let result = module.execute_and_get_result(&mut env)?;
@@ -454,11 +451,34 @@ mod boolean_tests {
                     Finish::succeed(result <- $0);
                 }
             }");
-
         let mut env = Environment::new();
         env.add("Boolean", BooleanNamespace::as_value())?;
         let result = module.execute_and_get_result(&mut env)?;
         assert!(result.is_boolean(true));
+        Ok(())
+    }
+
+    #[test]
+    fn can_eval_false() -> Result<(), ExecutionError> {
+        let module = s1("
+            module test {
+                entry: containing () receiving (Boolean, Finish) {
+                    Boolean::false() -> ($_, $0);
+                    $_::drop();
+                    $0::eval()
+                      eval (Finish)
+                        ::true ->() {
+                            Finish::unreachable();
+                        }
+                        ::false ->() {
+                            Finish::succeed();
+                        };
+                }
+            }");
+        let mut env = Environment::new();
+        env.add("Boolean", BooleanNamespace::as_value())?;
+        env.add("Finish", Finish::as_value())?;
+        module.execute(&mut env)?;
         Ok(())
     }
 
@@ -472,7 +492,6 @@ mod boolean_tests {
                     Finish::succeed(result <- $0);
                 }
             }");
-
         let mut env = Environment::new();
         env.add("Boolean", BooleanNamespace::as_value())?;
         let result = module.execute_and_get_result(&mut env)?;
@@ -491,11 +510,34 @@ mod boolean_tests {
                     Finish::succeed(result <- $0);
                 }
             }");
-
         let mut env = Environment::new();
         env.add("Boolean", BooleanNamespace::as_value())?;
         let result = module.execute_and_get_result(&mut env)?;
         assert!(result.is_boolean(false));
+        Ok(())
+    }
+
+    #[test]
+    fn can_eval_true() -> Result<(), ExecutionError> {
+        let module = s1("
+            module test {
+                entry: containing () receiving (Boolean, Finish) {
+                    Boolean::true() -> ($_, $0);
+                    $_::drop();
+                    $0::eval()
+                      eval (Finish)
+                        ::true ->() {
+                            Finish::succeed();
+                        }
+                        ::false ->() {
+                            Finish::unreachable();
+                        };
+                }
+            }");
+        let mut env = Environment::new();
+        env.add("Boolean", BooleanNamespace::as_value())?;
+        env.add("Finish", Finish::as_value())?;
+        module.execute(&mut env)?;
         Ok(())
     }
 }
