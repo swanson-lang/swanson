@@ -17,6 +17,7 @@
 
 use std::collections::HashSet;
 use std::collections::VecDeque;
+use std::sync::Arc;
 
 use crate::parser::ParseError;
 use crate::parser::Parser;
@@ -194,6 +195,14 @@ impl ParsedModule {
 pub fn parse_module(input: &str) -> Result<ParsedModule, ParseError> {
     let mut parser = Parser::for_str(input);
     parser.parse_s1_module()
+}
+
+/// Parse S₁ source code, translate it into S₀, and resolve the S₀ code into its internal AST
+/// representation.
+pub fn s1(content: &str) -> Arc<s0::Module> {
+    let s1_module = parse_module(content).expect("Invalid S₁ program");
+    let s0_module = s1_module.translate().expect("Cannot translate S₁ into S₀");
+    Arc::new(s0_module.resolve().expect("Ill-formed S₀ program"))
 }
 
 //-------------------------------------------------------------------------------------------------

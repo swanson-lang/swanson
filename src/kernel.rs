@@ -225,28 +225,17 @@ impl BoxedPrimitive for StringPrimitive {
 mod string_tests {
     use super::*;
 
-    use crate::s0::s0;
+    use crate::s1::s1;
 
     #[test]
     fn can_produce_string() -> Result<(), ExecutionError> {
-        let module = s0("
+        let module = s1("
             module test {
                 entry: containing () receiving (String, Finish) {
-                    return = closure containing (Finish)
-                        branch return = entry@1;
                     content = literal hello;
-                    -> String from_literal;
-                }
-
-                entry@1: containing (Finish) receiving ($_, $0) {
-                    result = rename $0;
-                    return = closure containing (Finish, result)
-                        branch return = entry@2;
-                    -> $_ drop;
-                }
-
-                entry@2: containing (Finish, result) receiving () {
-                    -> Finish succeed;
+                    String::from_literal(content) -> ($_, $0);
+                    $_::drop();
+                    Finish::succeed(result <- $0);
                 }
             }");
 
@@ -259,37 +248,15 @@ mod string_tests {
 
     #[test]
     fn can_duplicate_string() -> Result<(), ExecutionError> {
-        let module = s0("
+        let module = s1("
             module test {
                 entry: containing () receiving (String, Finish) {
-                    return = closure containing (Finish)
-                        branch return = entry@1;
                     content = literal hello;
-                    -> String from_literal;
-                }
-
-                entry@1: containing (Finish) receiving ($_, $0) {
-                    return = closure containing (Finish, $0)
-                        branch return = entry@2;
-                    -> $_ drop;
-                }
-
-                entry@2: containing (Finish, $0) receiving () {
-                    return = closure containing (Finish)
-                        branch return = entry@3;
-                    -> $0 copy;
-                }
-
-                entry@3: containing (Finish) receiving ($0, $1) {
-                    rhs = rename $1;
-                    return = closure containing (Finish)
-                        branch return = entry@4;
-                    -> $0 append;
-                }
-
-                entry@4: containing (Finish) receiving ($0) {
-                    result = rename $0;
-                    -> Finish succeed;
+                    String::from_literal(content) -> ($_, $0);
+                    $_::drop();
+                    $0::copy() -> ($0, $1);
+                    $0::append(rhs <- $1) -> ($0);
+                    Finish::succeed(result <- $0);
                 }
             }");
 
@@ -456,27 +423,16 @@ impl InlinePrimitive for TruePrimitive {
 mod boolean_tests {
     use super::*;
 
-    use crate::s0::s0;
+    use crate::s1::s1;
 
     #[test]
     fn can_produce_false() -> Result<(), ExecutionError> {
-        let module = s0("
+        let module = s1("
             module test {
                 entry: containing () receiving (Boolean, Finish) {
-                    return = closure containing (Finish)
-                        branch return = entry@1;
-                    -> Boolean false;
-                }
-
-                entry@1: containing (Finish) receiving ($_, $0) {
-                    result = rename $0;
-                    return = closure containing (Finish, result)
-                        branch return = entry@2;
-                    -> $_ drop;
-                }
-
-                entry@2: containing (Finish, result) receiving () {
-                    -> Finish succeed;
+                    Boolean::false() -> ($_, $0);
+                    $_::drop();
+                    Finish::succeed(result <- $0);
                 }
             }");
 
@@ -489,29 +445,13 @@ mod boolean_tests {
 
     #[test]
     fn can_negate_false() -> Result<(), ExecutionError> {
-        let module = s0("
+        let module = s1("
             module test {
                 entry: containing () receiving (Boolean, Finish) {
-                    return = closure containing (Finish)
-                        branch return = entry@1;
-                    -> Boolean false;
-                }
-
-                entry@1: containing (Finish) receiving ($_, $0) {
-                    return = closure containing (Finish, $0)
-                        branch return = entry@2;
-                    -> $_ drop;
-                }
-
-                entry@2: containing (Finish, $0) receiving () {
-                    return = closure containing (Finish)
-                        branch return = entry@3;
-                    -> $0 not;
-                }
-
-                entry@3: containing (Finish) receiving ($0) {
-                    result = rename $0;
-                    -> Finish succeed;
+                    Boolean::false() -> ($_, $0);
+                    $_::drop();
+                    $0::not() -> ($0);
+                    Finish::succeed(result <- $0);
                 }
             }");
 
@@ -524,23 +464,12 @@ mod boolean_tests {
 
     #[test]
     fn can_produce_true() -> Result<(), ExecutionError> {
-        let module = s0("
+        let module = s1("
             module test {
                 entry: containing () receiving (Boolean, Finish) {
-                    return = closure containing (Finish)
-                        branch return = entry@1;
-                    -> Boolean true;
-                }
-
-                entry@1: containing (Finish) receiving ($_, $0) {
-                    result = rename $0;
-                    return = closure containing (Finish, result)
-                        branch return = entry@2;
-                    -> $_ drop;
-                }
-
-                entry@2: containing (Finish, result) receiving () {
-                    -> Finish succeed;
+                    Boolean::true() -> ($_, $0);
+                    $_::drop();
+                    Finish::succeed(result <- $0);
                 }
             }");
 
@@ -553,29 +482,13 @@ mod boolean_tests {
 
     #[test]
     fn can_negate_true() -> Result<(), ExecutionError> {
-        let module = s0("
+        let module = s1("
             module test {
                 entry: containing () receiving (Boolean, Finish) {
-                    return = closure containing (Finish)
-                        branch return = entry@1;
-                    -> Boolean true;
-                }
-
-                entry@1: containing (Finish) receiving ($_, $0) {
-                    return = closure containing (Finish, $0)
-                        branch return = entry@2;
-                    -> $_ drop;
-                }
-
-                entry@2: containing (Finish, $0) receiving () {
-                    return = closure containing (Finish)
-                        branch return = entry@3;
-                    -> $0 not;
-                }
-
-                entry@3: containing (Finish) receiving ($0) {
-                    result = rename $0;
-                    -> Finish succeed;
+                    Boolean::true() -> ($_, $0);
+                    $_::drop();
+                    $0::not() -> ($0);
+                    Finish::succeed(result <- $0);
                 }
             }");
 
