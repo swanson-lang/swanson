@@ -24,6 +24,9 @@ use std::sync::Arc;
 
 use crate::parser::ParseError;
 use crate::parser::Parser;
+use crate::types::EnvironmentGlob;
+use crate::types::EnvironmentType;
+use crate::types::ValueType;
 
 //-------------------------------------------------------------------------------------------------
 // Names
@@ -121,6 +124,25 @@ pub struct Block {
     pub receiving: Vec<Name>,
     pub statements: Vec<Statement>,
     pub invocation: Invocation,
+}
+
+impl Block {
+    /// Returns the environment type that describes the inputs to a block.  This includes any
+    /// values defined by the block's `containing` and `receiving` clauses, but doesn't specify
+    /// specific types for any of those values.
+    pub fn input_type(&self) -> EnvironmentType {
+        let mut values = HashMap::new();
+        for name in &self.containing {
+            values.insert(name.clone(), ValueType::Any);
+        }
+        for name in &self.receiving {
+            values.insert(name.clone(), ValueType::Any);
+        }
+        EnvironmentType {
+            values,
+            glob: EnvironmentGlob::Empty,
+        }
+    }
 }
 
 //-------------------------------------------------------------------------------------------------
