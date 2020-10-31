@@ -232,7 +232,7 @@ mod string_tests {
         let module = s1("
             module test {
                 entry: containing () receiving (String, Finish) {
-                    content = literal hello;
+                    content = literal \"hello\";
                     String::from_literal(content) -> ($_, $0);
                     $_::drop();
                     Finish::succeed(result <- $0);
@@ -250,7 +250,7 @@ mod string_tests {
         let module = s1("
             module test {
                 entry: containing () receiving (String, Finish) {
-                    content = literal hello;
+                    content = literal \"hello\";
                     String::from_literal(content) -> ($_, $0);
                     $_::drop();
                     $0::copy() -> ($0, $1);

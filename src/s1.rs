@@ -581,7 +581,7 @@ mod translation_tests {
         let s1 = parse_module(
             "module mod {
                 entry: containing () receiving (String, Finish) {
-                    content = literal hello;
+                    content = literal \"hello\";
                     String::from_literal(content) -> ($_, $0);
                     $_::drop();
                     Finish::succeed(result <- $0);
@@ -593,7 +593,7 @@ mod translation_tests {
         let expected_s0 = s0::parse_module(
             "module mod {
                 entry: containing () receiving (String, Finish) {
-                    content = literal hello;
+                    content = literal \"hello\";
                     return = closure containing (Finish) branch return = entry@1;
                     -> String from_literal;
                 }
@@ -621,7 +621,7 @@ mod translation_tests {
         let s1 = parse_module(
             "module mod {
                 entry: containing () receiving (String, Finish) {
-                    content = literal hello;
+                    content = literal \"hello\";
                     String::from_literal(content) -> ($_, $0) => continue::continue;
                     $_::drop();
                     Finish::succeed(result <- $0);
@@ -633,7 +633,7 @@ mod translation_tests {
         let expected_s0 = s0::parse_module(
             "module mod {
                 entry: containing () receiving (String, Finish) {
-                    content = literal hello;
+                    content = literal \"hello\";
                     continue = closure containing (Finish) branch continue = entry@1;
                     -> String from_literal;
                 }
@@ -661,7 +661,7 @@ mod translation_tests {
         let s1 = parse_module(
             "module mod {
                 entry: containing () receiving (Boolean, continue) {
-                    content = literal true;
+                    content = literal \"true\";
                     Boolean::eval(content)
                         eval (continue)
                           ::true ->() { continue::return(); }
@@ -674,7 +674,7 @@ mod translation_tests {
         let expected_s0 = s0::parse_module(
             "module mod {
                 entry: containing () receiving (Boolean, continue) {
-                    content = literal true;
+                    content = literal \"true\";
                     eval = closure containing (continue)
                       branch true = entry$eval$true,
                       branch false = entry$eval$false;
@@ -702,7 +702,7 @@ mod translation_tests {
         let s1 = parse_module(
             "module mod {
                 entry: containing () receiving (Boolean, Finish) {
-                    content = literal true;
+                    content = literal \"true\";
                     Boolean::eval(content)
                         eval ()
                           ::true ->() { continue::return(); }
@@ -717,7 +717,7 @@ mod translation_tests {
         let expected_s0 = s0::parse_module(
             "module mod {
                 entry: containing () receiving (Boolean, Finish) {
-                    content = literal true;
+                    content = literal \"true\";
                     continue = closure containing (Finish) branch return = entry@1;
                     eval = closure containing (continue)
                       branch true = entry$eval$true,

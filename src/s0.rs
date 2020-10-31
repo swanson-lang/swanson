@@ -385,7 +385,7 @@ mod macro_tests {
             parse_module(
                 "module mod {
                     block: containing (closed_over) receiving (input) {
-                        lit = literal foo;
+                        lit = literal \"foo\";
                         atom = atom;
                         -> closed_over branch;
                     }

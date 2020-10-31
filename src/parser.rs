@@ -643,14 +643,10 @@ where
     fn parse_create_literal(&mut self, dest: Name) -> Result<s0::Statement, ParseError> {
         self.require_keyword("literal")?;
         self.skip_whitespace();
-        let content = self.parse_name()?;
+        let value = self.parse_binary_literal()?;
         self.skip_whitespace();
         self.require_operator(";")?;
-        Ok(s0::CreateLiteral {
-            dest,
-            value: content.as_ref().to_vec(),
-        }
-        .into())
+        Ok(s0::CreateLiteral { dest, value }.into())
     }
 
     /// ``` s0
@@ -783,8 +779,11 @@ mod parse_s0_statement_tests {
 
     #[test]
     fn can_parse_create_literal() {
-        check_statement(r#" dest = literal bar ;"#, create_literal("dest", b"bar"));
-        check_statement(r#" "dest" = literal bar ;"#, create_literal("dest", b"bar"));
+        check_statement(r#" dest = literal "bar" ;"#, create_literal("dest", b"bar"));
+        check_statement(
+            r#" "dest" = literal "bar" ;"#,
+            create_literal("dest", b"bar"),
+        );
     }
 
     #[test]
@@ -946,7 +945,7 @@ mod parse_s0_block_tests {
                   containing (closed_over)
                   receiving (input)
                 {
-                    @lit = literal foo;
+                    @lit = literal "foo";
                     @atom = atom;
                     -> closed_over branch;
                 }
@@ -1035,7 +1034,7 @@ mod parse_s0_module_tests {
                     containing (closed_over)
                     receiving (input)
                     {
-                      @lit = literal foo;
+                      @lit = literal "foo";
                       @atom = atom;
                       -> closed_over branch;
                     }
@@ -1738,8 +1737,11 @@ mod parse_s1_statement_tests {
 
     #[test]
     fn can_parse_create_literal() {
-        check_statement(r#" dest = literal bar ;"#, create_literal("dest", b"bar"));
-        check_statement(r#" "dest" = literal bar ;"#, create_literal("dest", b"bar"));
+        check_statement(r#" dest = literal "bar" ;"#, create_literal("dest", b"bar"));
+        check_statement(
+            r#" "dest" = literal "bar" ;"#,
+            create_literal("dest", b"bar"),
+        );
     }
 
     #[test]
@@ -1894,7 +1896,7 @@ mod parse_s1_statement_list_tests {
         assert_eq!(
             Parser::for_str(concat!(
                 "{",
-                "  @lit = literal foo; ",
+                "  @lit = literal \"foo\"; ",
                 "  @atom = atom; ",
                 "}",
             ))
@@ -1988,7 +1990,7 @@ mod parse_s1_block_tests {
                   containing ( closed_over )
                   receiving ( input )
                 {
-                    @lit = literal foo ;
+                    @lit = literal "foo" ;
                     @atom = atom ;
                     foo::bar ( param1 , param2 <- var ) block ( close1 ) ::branch -> ( ) { } ;
                 }
@@ -2083,7 +2085,7 @@ mod parse_s1_module_tests {
                       containing ( closed_over )
                       receiving ( input )
                     {
-                        @lit = literal foo ;
+                        @lit = literal "foo" ;
                         @atom = atom ;
                         foo::bar ( param1 , param2 <- var ) block ( close1 ) ::branch -> ( ) { } ;
                     }
