@@ -836,8 +836,14 @@ where
         self.skip_whitespace();
         let target = self.parse_name()?;
         self.skip_whitespace();
-        let branch = self.parse_name()?;
-        self.skip_whitespace();
+        let branch = match self.it.peek() {
+            Some(ch) if *ch == ';' => Name::new(""),
+            _ => {
+                let branch = self.parse_name()?;
+                self.skip_whitespace();
+                branch
+            }
+        };
         self.require_operator(";")?;
         Ok(s0::Invocation { target, branch })
     }
@@ -880,6 +886,8 @@ mod parse_invocation_tests {
     #[test]
     fn can_parse() {
         check_invocation(r#"-> target branch ;"#, invocation("target", "branch"));
+        check_invocation(r#"-> target "" ;"#, invocation("target", ""));
+        check_invocation(r#"-> target ;"#, invocation("target", ""));
     }
 }
 
