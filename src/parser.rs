@@ -220,6 +220,119 @@ mod require_operator_tests {
     }
 }
 
+impl<I> Parser<I>
+where
+    I: Iterator<Item = char>,
+{
+    fn parse_hex_char(&mut self) -> Result<u32, ParseError> {
+        self.require_next()?
+            .to_digit(16)
+            .ok_or(ParseError::UnexpectedCharacter)
+    }
+
+    fn parse_hex_byte(&mut self) -> Result<u8, ParseError> {
+        let upper_nybble = self.parse_hex_char()? as u8;
+        let lower_nybble = self.parse_hex_char()? as u8;
+        Ok(upper_nybble << 4 | lower_nybble)
+    }
+
+    fn parse_binary_literal(&mut self) -> Result<Vec<u8>, ParseError> {
+        let mut result = Vec::new();
+        self.require_operator("\"")?;
+        loop {
+            let ch = self.require_next()?;
+            match ch {
+                '"' => return Ok(result),
+                '\\' => {
+                    let escape = self.require_next()?;
+                    match escape {
+                        '\\' => result.push(b'\\'),
+                        '"' => result.push(b'"'),
+                        'f' => result.push(b'\x0c'),
+                        'n' => result.push(b'\n'),
+                        'r' => result.push(b'\r'),
+                        't' => result.push(b'\t'),
+                        'v' => result.push(b'\x0b'),
+                        'x' => result.push(self.parse_hex_byte()?),
+                        _ => return Err(ParseError::UnexpectedCharacter),
+                    }
+                }
+                _ if ch.is_ascii() => result.push(ch as u8),
+                _ => return Err(ParseError::UnexpectedCharacter),
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod parse_binary_literal_tests {
+    use super::*;
+
+    #[test]
+    fn can_parse() {
+        assert_eq!(
+            Parser::for_str(r#""foo""#).parse_binary_literal(),
+            Ok(b"foo".to_vec())
+        );
+        assert_eq!(
+            Parser::for_str(r#""foo123""#).parse_binary_literal(),
+            Ok(b"foo123".to_vec())
+        );
+        assert_eq!(
+            Parser::for_str(r#""@foo""#).parse_binary_literal(),
+            Ok(b"@foo".to_vec())
+        );
+        assert_eq!(
+            Parser::for_str(r#""foo"("#).parse_binary_literal(),
+            Ok(b"foo".to_vec())
+        );
+        assert_eq!(
+            Parser::for_str(r#""\"""#).parse_binary_literal(),
+            Ok(b"\"".to_vec())
+        );
+        assert_eq!(
+            Parser::for_str(r#""\\""#).parse_binary_literal(),
+            Ok(b"\\".to_vec())
+        );
+        assert_eq!(
+            Parser::for_str(r#""\f""#).parse_binary_literal(),
+            Ok(b"\x0c".to_vec())
+        );
+        assert_eq!(
+            Parser::for_str(r#""\n""#).parse_binary_literal(),
+            Ok(b"\n".to_vec())
+        );
+        assert_eq!(
+            Parser::for_str(r#""\r""#).parse_binary_literal(),
+            Ok(b"\r".to_vec())
+        );
+        assert_eq!(
+            Parser::for_str(r#""\t""#).parse_binary_literal(),
+            Ok(b"\t".to_vec())
+        );
+        assert_eq!(
+            Parser::for_str(r#""\v""#).parse_binary_literal(),
+            Ok(b"\x0b".to_vec())
+        );
+        assert_eq!(
+            Parser::for_str(r#""\x57""#).parse_binary_literal(),
+            Ok(b"\x57".to_vec())
+        );
+        assert_eq!(
+            Parser::for_str(",").parse_binary_literal(),
+            Err(ParseError::UnexpectedCharacter)
+        );
+        assert_eq!(
+            Parser::for_str("").parse_binary_literal(),
+            Err(ParseError::UnexpectedEnd)
+        );
+        assert_eq!(
+            Parser::for_str(r#""foo"#).parse_binary_literal(),
+            Err(ParseError::UnexpectedEnd)
+        );
+    }
+}
+
 fn is_bare_name_character(ch: char) -> bool {
     match ch {
         'A'..='Z' | 'a'..='z' | '0'..='9' | '@' | '$' | '_' | '.' => true,
@@ -250,45 +363,92 @@ where
     }
 }
 
-#[cfg(test)]
-mod parse_bare_name_tests {
-    use super::*;
-
-    #[test]
-    fn can_parse() {
-        assert_eq!(
-            Parser::for_str("foo").parse_bare_name(),
-            Ok(Name::new("foo"))
-        );
-        assert_eq!(
-            Parser::for_str("foo123").parse_bare_name(),
-            Ok(Name::new("foo123"))
-        );
-        assert_eq!(
-            Parser::for_str("@foo").parse_bare_name(),
-            Ok(Name::new("@foo"))
-        );
-        assert_eq!(
-            Parser::for_str("foo(").parse_bare_name(),
-            Ok(Name::new("foo"))
-        );
-        assert_eq!(
-            Parser::for_str(",").parse_bare_name(),
-            Err(ParseError::UnexpectedCharacter)
-        );
-        assert_eq!(
-            Parser::for_str("").parse_bare_name(),
-            Err(ParseError::UnexpectedEnd)
-        );
-    }
-}
-
 impl<I> Parser<I>
 where
     I: Iterator<Item = char>,
 {
     fn parse_name(&mut self) -> Result<Name, ParseError> {
-        self.parse_bare_name()
+        if let Some(ch) = self.it.peek() {
+            match ch {
+                '"' => self.parse_binary_literal().map(Name::new),
+                _ => self.parse_bare_name(),
+            }
+        } else {
+            Err(ParseError::UnexpectedEnd)
+        }
+    }
+}
+
+#[cfg(test)]
+mod parse_name_tests {
+    use super::*;
+
+    #[test]
+    fn can_parse_bare_names() {
+        assert_eq!(Parser::for_str("foo").parse_name(), Ok(Name::new("foo")));
+        assert_eq!(
+            Parser::for_str("foo123").parse_name(),
+            Ok(Name::new("foo123"))
+        );
+        assert_eq!(Parser::for_str("@foo").parse_name(), Ok(Name::new("@foo")));
+        assert_eq!(Parser::for_str("foo(").parse_name(), Ok(Name::new("foo")));
+        assert_eq!(
+            Parser::for_str(",").parse_name(),
+            Err(ParseError::UnexpectedCharacter)
+        );
+        assert_eq!(
+            Parser::for_str("").parse_name(),
+            Err(ParseError::UnexpectedEnd)
+        );
+    }
+
+    #[test]
+    fn can_parse_binary_names() {
+        assert_eq!(
+            Parser::for_str(r#""foo""#).parse_name(),
+            Ok(Name::new("foo"))
+        );
+        assert_eq!(
+            Parser::for_str(r#""foo123""#).parse_name(),
+            Ok(Name::new("foo123"))
+        );
+        assert_eq!(
+            Parser::for_str(r#""@foo""#).parse_name(),
+            Ok(Name::new("@foo"))
+        );
+        assert_eq!(
+            Parser::for_str(r#""foo"("#).parse_name(),
+            Ok(Name::new("foo"))
+        );
+        assert_eq!(Parser::for_str(r#""\"""#).parse_name(), Ok(Name::new("\"")));
+        assert_eq!(Parser::for_str(r#""\\""#).parse_name(), Ok(Name::new("\\")));
+        assert_eq!(
+            Parser::for_str(r#""\f""#).parse_name(),
+            Ok(Name::new("\x0c"))
+        );
+        assert_eq!(Parser::for_str(r#""\n""#).parse_name(), Ok(Name::new("\n")));
+        assert_eq!(Parser::for_str(r#""\r""#).parse_name(), Ok(Name::new("\r")));
+        assert_eq!(Parser::for_str(r#""\t""#).parse_name(), Ok(Name::new("\t")));
+        assert_eq!(
+            Parser::for_str(r#""\v""#).parse_name(),
+            Ok(Name::new("\x0b"))
+        );
+        assert_eq!(
+            Parser::for_str(r#""\x57""#).parse_name(),
+            Ok(Name::new("\x57"))
+        );
+        assert_eq!(
+            Parser::for_str(",").parse_name(),
+            Err(ParseError::UnexpectedCharacter)
+        );
+        assert_eq!(
+            Parser::for_str("").parse_name(),
+            Err(ParseError::UnexpectedEnd)
+        );
+        assert_eq!(
+            Parser::for_str(r#""foo"#).parse_name(),
+            Err(ParseError::UnexpectedEnd)
+        );
     }
 }
 
@@ -590,6 +750,7 @@ mod parse_s0_statement_tests {
     #[test]
     fn can_parse_create_atom() {
         check_statement(r#" dest = atom ; "#, create_atom("dest"));
+        check_statement(r#" "dest" = atom ; "#, create_atom("dest"));
     }
 
     #[test]
@@ -606,16 +767,30 @@ mod parse_s0_statement_tests {
                 vec![("true", "@true"), ("false", "@false")],
             ),
         );
+        check_statement(
+            r#"
+                "dest" = closure containing ( "foo\n" , bar )
+                    branch true = @true ,
+                    branch false = @false ;
+            "#,
+            create_closure(
+                "dest",
+                vec!["foo\n", "bar"],
+                vec![("true", "@true"), ("false", "@false")],
+            ),
+        );
     }
 
     #[test]
     fn can_parse_create_literal() {
         check_statement(r#" dest = literal bar ;"#, create_literal("dest", b"bar"));
+        check_statement(r#" "dest" = literal bar ;"#, create_literal("dest", b"bar"));
     }
 
     #[test]
     fn can_parse_rename() {
         check_statement(r#" dest = rename source ;"#, rename("dest", "source"));
+        check_statement(r#" dest = rename "source" ;"#, rename("dest", "source"));
     }
 }
 
@@ -1530,6 +1705,7 @@ mod parse_s1_statement_tests {
     #[test]
     fn can_parse_create_atom() {
         check_statement(r#" dest = atom ; "#, create_atom("dest"));
+        check_statement(r#" "dest" = atom ; "#, create_atom("dest"));
     }
 
     #[test]
@@ -1546,16 +1722,30 @@ mod parse_s1_statement_tests {
                 vec![("true", "@true"), ("false", "@false")],
             ),
         );
+        check_statement(
+            r#"
+                "dest" = closure containing ( "foo\n" , bar )
+                    branch true = @true ,
+                    branch false = @false ;
+            "#,
+            create_closure(
+                "dest",
+                vec!["foo\n", "bar"],
+                vec![("true", "@true"), ("false", "@false")],
+            ),
+        );
     }
 
     #[test]
     fn can_parse_create_literal() {
         check_statement(r#" dest = literal bar ;"#, create_literal("dest", b"bar"));
+        check_statement(r#" "dest" = literal bar ;"#, create_literal("dest", b"bar"));
     }
 
     #[test]
     fn can_parse_rename() {
         check_statement(r#" dest = rename source ;"#, rename("dest", "source"));
+        check_statement(r#" dest = rename "source" ;"#, rename("dest", "source"));
     }
 
     #[test]
