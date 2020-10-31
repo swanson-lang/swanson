@@ -590,20 +590,47 @@ where
         self.skip_whitespace();
         self.require_keyword("containing")?;
         self.skip_whitespace();
-        let containing = self.parse_name_list()?;
+        let close_over = self.parse_name_list()?;
+        self.skip_whitespace();
+        let ch = self.require_peek()?;
+        let branches = match ch {
+            '-' => self.parse_create_closure_single_branch()?,
+            _ => self.parse_create_closure_branch_list()?,
+        };
+        self.skip_whitespace();
+        self.require_operator(";")?;
+        Ok(s0::CreateClosure {
+            dest,
+            close_over,
+            branches,
+        }
+        .into())
+    }
+
+    fn parse_create_closure_single_branch(&mut self) -> Result<Vec<s0::BranchRef>, ParseError> {
+        self.require_operator("->")?;
+        self.skip_whitespace();
+        let block_name = self.parse_name()?;
+        Ok(vec![s0::BranchRef {
+            branch_name: Name::new(""),
+            block_name,
+            resolved: 0,
+        }])
+    }
+
+    fn parse_create_closure_branch_list(&mut self) -> Result<Vec<s0::BranchRef>, ParseError> {
         let mut branches = Vec::new();
         {
-            self.skip_whitespace();
             self.require_keyword("branch")?;
             self.skip_whitespace();
             let branch_name = self.parse_name()?;
             self.skip_whitespace();
             self.require_operator("=")?;
             self.skip_whitespace();
-            let branch_target = self.parse_name()?;
+            let block_name = self.parse_name()?;
             branches.push(s0::BranchRef {
                 branch_name,
-                block_name: branch_target,
+                block_name,
                 resolved: 0,
             });
         }
@@ -611,13 +638,7 @@ where
             self.skip_whitespace();
             let ch = self.require_peek()?;
             if ch == ';' {
-                self.it.next();
-                return Ok(s0::CreateClosure {
-                    dest,
-                    close_over: containing,
-                    branches,
-                }
-                .into());
+                return Ok(branches);
             }
 
             self.require_operator(",")?;
@@ -628,10 +649,10 @@ where
             self.skip_whitespace();
             self.require_operator("=")?;
             self.skip_whitespace();
-            let branch_target = self.parse_name()?;
+            let block_name = self.parse_name()?;
             branches.push(s0::BranchRef {
                 branch_name,
-                block_name: branch_target,
+                block_name,
                 resolved: 0,
             });
         }
@@ -763,6 +784,7 @@ mod parse_s0_statement_tests {
                 vec![("true", "@true"), ("false", "@false")],
             ),
         );
+
         check_statement(
             r#"
                 "dest" = closure containing ( "foo\n" , bar )
@@ -774,6 +796,15 @@ mod parse_s0_statement_tests {
                 vec!["foo\n", "bar"],
                 vec![("true", "@true"), ("false", "@false")],
             ),
+        );
+
+        check_statement(
+            r#" dest = closure containing ( bar ) -> @true ; "#,
+            create_closure("dest", vec!["bar"], vec![("", "@true")]),
+        );
+        check_statement(
+            r#" dest = closure containing ( bar ) branch "" = @true; "#,
+            create_closure("dest", vec!["bar"], vec![("", "@true")]),
         );
     }
 
@@ -1721,6 +1752,7 @@ mod parse_s1_statement_tests {
                 vec![("true", "@true"), ("false", "@false")],
             ),
         );
+
         check_statement(
             r#"
                 "dest" = closure containing ( "foo\n" , bar )
@@ -1732,6 +1764,15 @@ mod parse_s1_statement_tests {
                 vec!["foo\n", "bar"],
                 vec![("true", "@true"), ("false", "@false")],
             ),
+        );
+
+        check_statement(
+            r#" dest = closure containing ( bar ) -> @true ; "#,
+            create_closure("dest", vec!["bar"], vec![("", "@true")]),
+        );
+        check_statement(
+            r#" dest = closure containing ( bar ) branch "" = @true; "#,
+            create_closure("dest", vec!["bar"], vec![("", "@true")]),
         );
     }
 
